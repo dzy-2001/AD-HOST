@@ -136,6 +136,7 @@ class App(ttk.Frame):
         if directory:self.output.set(directory)
 
     def connect(self):
+        if self.session is not None and not self.session.wait(0):return
         try:
             timeout=float(self.timeout.get())
             if not 1<=timeout<=600:raise ValueError('GET 无进度超时应为 1–600 秒')

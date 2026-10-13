@@ -24,7 +24,7 @@ class V26Session:
         self._actions=queue.Queue(maxsize=1);self._pending=False;self._events=deque(maxlen=300)
         self._sock=None;self.transport=None;self._worker=None
         self.state='new';self.phase='未连接';self.error='';self.status={};self.diagnostics={}
-        self.configured=None;self.active=None;self.managed=False;self.repeating=False
+        self.configured=None;self.active=None;self.managed=False;self.repeating=False;self._repeat_stopped=False
         self.receiving=False;self.completed=0;self.last_path='';self.rx=0;self.tx=0
         self.expected=0;self.received=0;self.written=0;self.index=0;self.capture_started=0
         self._bad_metadata=0;self._next_poll=0
@@ -43,7 +43,7 @@ class V26Session:
                         active_settings=asdict(self.active) if self.active else None,
                         configured=asdict(self.configured) if self.configured else None,
                         repeat=self.repeating,receiving=self.receiving,busy=self._pending,
-                        can_start=available and not self.managed and can_arm(s),
+                        can_start=available and not self.managed and not self.repeating and can_arm(s),
                         can_force=bool(available and can_force(s,self.active)),
                         can_read=available and not self.managed and can_get(s),
                         can_release=available and not self.managed and can_release(s),
@@ -71,12 +71,12 @@ class V26Session:
             raise ValueError('不支持的操作')
         with self._lock:
             if self.state!='connected':raise RuntimeError('请先连接并通过 V26 预检')
-            if action=='stop_repeat':self.repeating=False;self._event('已停止后续记录，当前记录继续完成');return
+            if action=='stop_repeat':self._repeat_stopped=True;self.repeating=False;self._event('已停止后续记录，当前记录继续完成');return
             if action=='cancel' and self.receiving:
                 self.repeating=False;self.stop();return
             if self.receiving or self._pending:raise RuntimeError('上一条操作尚未完成；GET 中禁止发送控制命令')
             if action in ('configure','start','arm'):
-                if self.managed or not can_arm(self.status):raise RuntimeError('设备尚未就绪或有未处理记录')
+                if self.managed or self.repeating or not can_arm(self.status):raise RuntimeError('设备尚未就绪、有未处理记录或仍在重复采集')
                 if action!='arm' and not isinstance(settings,AcquisitionSettings):raise ValueError('缺少完整采集配置')
             if repeat and (settings is None or settings.mode!=1 or 'GAP_LEFT_MS' not in self.status):
                 raise ValueError('重复采集需要自动模式和设备 GAP_LEFT_MS 字段')
@@ -84,6 +84,7 @@ class V26Session:
             if action=='query' and command not in ('VER','FST','TST','FREG'):raise ValueError('查询指令不受支持')
             if action in ('finit','clear') and (self.managed or self.status.get('STATUS',0)&(2|4)):
                 raise RuntimeError('请先处理当前采集/记录')
+            if action=='start':self._repeat_stopped=False
             self._pending=True;self._actions.put_nowait((action,settings,repeat,command))
 
     def submit_command(self,text):
@@ -190,8 +191,13 @@ class V26Session:
         if not can_arm(s):raise ValueError('设备未就绪')
         if not self.configured.matches(s):raise ValueError('设备配置已变化，请重新应用配置')
         if self.configured.mode==1 and s.get('GAP_LEFT_MS',0)>0:raise ValueError('设备自动组间隔尚未结束')
+        # A stop request may arrive while configuration/status replies are pending.
+        if repeat and self._repeat_stopped:return
+        # A rejected ARM can still have executed on FPGA; never reuse prior settings.
+        self.active=None
         self._request('ARM')
-        self.active=self.configured;self.managed=True;self.repeating=repeat;self._bad_metadata=0
+        self.active=self.configured;self.managed=True;self._bad_metadata=0
+        with self._lock:self.repeating=repeat and not self._repeat_stopped
         self.phase='已准备，等待触发';self._next_poll=0
 
     def _verify_released(self):
@@ -290,13 +296,15 @@ class V26Session:
             meta.update(complete=success,error=failure,received_hex_bytes=self.received,written_hex_bytes=self.written,
                         elapsed_seconds=time.monotonic()-self.capture_started)
             path=final if success else partial
-            if success:partial.replace(final)
             temporary=Path(str(path)+'.json.tmp')
             with temporary.open('w',encoding='utf-8') as f:
                 json.dump(meta,f,ensure_ascii=False,indent=2);f.flush()
                 import os
                 os.fsync(f.fileno())
             temporary.replace(Path(str(path)+'.json'))
+            # Publish the usable HEX only after its durable metadata exists.
+            # Any earlier failure leaves the data visibly marked partial.
+            if success:partial.replace(final)
             self.receiving=False
         self.last_path=str(final);self.completed+=1;self._event(f'已完整保存 {self.expected:,} HEX 字节：{final.name}')
         self._status()

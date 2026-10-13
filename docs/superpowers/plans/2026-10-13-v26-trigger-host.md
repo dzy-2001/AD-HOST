@@ -25,27 +25,27 @@
 ### 1. Protocol values and state gates
 Files: ad_host/v26_protocol.py; tests/test_v26_protocol.py.
 Interfaces: AcquisitionSettings.command(verb), .samples, .pre_samples; parse_tst(text)->dict; parse_fst(text)->dict; can_arm/status, can_get/status, can_force(status,active), can_release/status; validate_record(status,active=None).
-- [ ] Write and run failing tests for legal commands, field bases, FST SET commas, masks, metadata consistency and bounds.
-- [ ] Implement pure validation/encoding; rerun tests.
+- [x] Write and run failing tests for legal commands, field bases, FST SET commas, masks, metadata consistency and bounds.
+- [x] Implement pure validation/encoding; rerun tests.
 
 ### 2. Serial session and file lifecycle
 Files: ad_host/v26_session.py, ad_host/v26_transport.py; tests/test_v26_session.py; tools/v26_simulator.py.
 Interfaces: V26Session(CaptureConfig,command_timeout=5,progress_timeout=30,poll_interval=.1).start/stop/wait, submit(action,settings=None,repeat=False), snapshot/events. Actions configure/start/force/cancel/read/release/stop_repeat/query; snapshot exposes state, status, active_settings, can_*, receiving, last_path, counts, error, repeat, diagnostics.
-- [ ] Write real loopback tests for manual, automatic repeat/gap, framing, failure/cancel/timeout, metadata and disk completion.
-- [ ] Implement one IO thread, bounded writer, immutable active config, validated DONE->GET flow and recovery; keep legacy core tests as regression.
-- [ ] Run suite and representative 160MB transfer simulation.
+- [x] Write real loopback tests for manual, automatic repeat/gap, framing, failure/cancel/timeout, metadata and disk completion.
+- [x] Implement one IO thread, bounded writer, immutable active config, validated DONE->GET flow and recovery; keep legacy core tests as regression.
+- [x] Run suite and representative 160MB transfer simulation.
 
 ### 3. Trigger-aware recording and GUI
 Files: ad_host/recording.py, plot_window.py, gui.py, __init__.py; tests/test_v26_recording.py; tools/gui_smoke.py, tools/plot_smoke.py.
-- [ ] Write failing tests for JSON trigger origin/validation/current12bits, preserving old files without trigger metadata.
-- [ ] Add metadata to Recording and use it in make_view/zoom/trigger markers.
-- [ ] Replace acquisition screen with V26 tabbed controls, state-driven buttons and diagnostic commands; preserve offline popup.
-- [ ] Windows real-Tk smoke tests perform manual trigger and validate controls, relative axis, export/reopen.
+- [x] Write failing tests for JSON trigger origin/validation/current12bits, preserving old files without trigger metadata.
+- [x] Add metadata to Recording and use it in make_view/zoom/trigger markers.
+- [x] Replace acquisition screen with V26 tabbed controls, state-driven buttons and diagnostic commands; preserve offline popup.
+- [x] Windows real-Tk smoke tests perform manual trigger and validate controls, relative axis, export/reopen.
 
 ### 4. Documentation, review and delivery
 Files: README.md, docs/QUICKSTART.md, docs/OFFLINE_PLOTTING.md, .github/workflows/ci.yml.
-- [ ] Document trigger limitations, workflows, partial files, recovery, protocol evidence and usage.
-- [ ] Run all tests, request independent whole-change review and fix important findings with regressions.
+- [x] Document trigger limitations, workflows, partial files, recovery, protocol evidence and usage.
+- [x] Run all tests, request independent whole-change review and fix important findings with regressions.
 - [ ] Push changes to requested branch, run Windows/Linux CI and Windows packaging; verify source and binary ZIP outputs.
 - [ ] Report branch, usable downloads, six-feature support and actual hardware-validation limitation.
 
@@ -53,3 +53,11 @@ Files: README.md, docs/QUICKSTART.md, docs/OFFLINE_PLOTTING.md, .github/workflow
 - Baseline copied from V3 into isolated ordinary directory (workspace has no local git repository); GitHub connector supplies branch history.
 - Initial local suite encountered a permission error opening installed NumPy in one test import; investigate environment before treating as product regression.
 - Ruling: user explicitly waived further stage confirmations; execute plan inline, use one final code reviewer, and publish to already authorized branch.
+
+### Verified implementation, 2026-10-13
+- Local full suite: 47 tests pass. The initial dependency permission issue was resolved; no product change required.
+- 20,000,000-pair / 160 MB loopback GET at simulated 6 MB/s completed in 32.89 s; SHA-256 exactly matched expected bytes, peak queued data about 0.06 MiB. This is not a board throughput measurement.
+- First Windows/Linux CI passed, including real Tk acquisition, trigger-relative zoom, PNG export/reopen, legacy GUI regression and PyInstaller build (run 38396978577). Final revision CI/package verification follows the final push.
+- Independent whole-change review completed. Regression fixes cover metadata publication failure, configuration edits during repeat gap, stop-repeat during ARM acknowledgment, rejected-but-executed ARM retaining stale settings, and duplicate Connect activation.
+- Implementation layout: new v26_gui.py is the run.py / module entry point; legacy gui.py/core.py remain for compatibility regression. Raw ACQ input follows verified CFG + TST + ARM; unsafe arbitrary command bypass is intentionally unavailable as designed.
+- Local bundled Tcl initialization is unavailable; real GUI checks run on Windows CI. Physical STM32/FPGA validation remains outstanding and is not claimed by software tests.

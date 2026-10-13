@@ -44,6 +44,13 @@ jobs:
         run: python -m pip install pyinstaller==6.16.0 -r requirements.txt
       - name: Build portable app
         run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name AD-HOST --collect-submodules tkinter run.py
+      - name: Portable executable startup smoke test
+        shell: pwsh
+        run: |
+          $appProcess = Start-Process -FilePath (Resolve-Path dist/AD-HOST/AD-HOST.exe) -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 5
+          if ($appProcess.HasExited) { throw "Portable application exited during startup" }
+          Stop-Process -Id $appProcess.Id
       - name: Pack documentation
         shell: pwsh
         run: |

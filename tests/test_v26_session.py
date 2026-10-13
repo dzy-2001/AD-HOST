@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import time
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -135,5 +136,52 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(s.snapshot()['completed'],0);self.assertTrue(all(f.closed for f in opened))
         meta=list(s.directory.glob('*.partial.hex.json'))
         self.assertFalse(json.loads(meta[0].read_text('utf-8'))['complete'])
+
+    def test_metadata_failure_keeps_partial_name(self):
+        board,s=self.connect();original=Path.open
+        def disk_open(path,*args,**kwargs):
+            if str(path).endswith('.json.tmp'):raise OSError('metadata storage failed')
+            return original(path,*args,**kwargs)
+        with patch.object(Path,'open',disk_open):
+            s.submit('start',AcquisitionSettings(len_mode=1,length=11,mode=1))
+            wait(s,lambda x:x['state']=='failed');self.assertTrue(s.wait(3))
+        self.assertEqual(s.snapshot()['completed'],0)
+        self.assertTrue(list(s.directory.glob('*.partial.hex')))
+        self.assertFalse([p for p in s.directory.glob('*.hex') if '.partial.' not in p.name])
+
+    def test_repeat_gap_freezes_configuration_until_stop_repeat(self):
+        board,s=self.connect()
+        s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1,gap_ms=1000),repeat=True)
+        wait(s,lambda x:x['completed']==1 and x['status'].get('GAP_LEFT_MS',0)>0)
+        self.assertFalse(s.snapshot()['can_start'])
+        with self.assertRaises(RuntimeError):s.submit('configure',AcquisitionSettings())
+        s.submit('stop_repeat');wait(s,lambda x:x['can_start'])
+
+    def test_stop_repeat_during_second_arm_acknowledgment_is_not_lost(self):
+        board,s=self.connect();board.arm_gate=threading.Event()
+        s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1,gap_ms=0),repeat=True)
+        end=time.monotonic()+3
+        while board.arm_count<2 and time.monotonic()<end:time.sleep(.005)
+        self.assertEqual(board.arm_count,2)
+        s.submit('stop_repeat');board.arm_gate.set()
+        wait(s,lambda x:x['completed']>=2)
+        self.assertFalse(s.snapshot()['repeat'])
+        time.sleep(.1);self.assertEqual(board.arm_count,2)
+
+    def test_rejected_executed_arm_does_not_reuse_previous_configuration(self):
+        board,s=self.connect()
+        s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1,gap_ms=0))
+        wait(s,lambda x:x['completed']==1 and x['can_start'])
+        board.fault='reject_executed_arm'
+        s.submit('start',AcquisitionSettings(len_mode=1,length=20,mode=0))
+        snap=wait(s,lambda x:bool(x['error']) and not x['busy'])
+        self.assertIsNone(snap['active_settings'])
+        self.assertFalse(snap['can_force'])
+        board.phase='done'
+        wait(s,lambda x:x['can_read']);s.submit('read')
+        snap=wait(s,lambda x:x['completed']==2)
+        meta=json.loads(Path(snap['last_path']+'.json').read_text('utf-8'))
+        self.assertIsNone(meta['active_settings'])
+        self.assertEqual(meta['status']['SAMPLES'],20)
 
 if __name__=='__main__':unittest.main()

@@ -13,6 +13,7 @@ class Simulator:
         self.fragment=fragment;self.fault=fault;self.mbps=mbps
         self.stop_event=threading.Event();self.get_active=threading.Event()
         self.commands=[];self.interleaved=[];self.error=None
+        self.arm_gate=None;self.arm_count=0
         self.config=[0,10,30,0,2500,0,1500,4,3,1000]
         self.active=None;self.phase='ready';self.polls=0;self.gap_until=0;self.conn=None
         self.thread=threading.Thread(target=self._serve,daemon=True);self.thread.start()
@@ -62,7 +63,9 @@ class Simulator:
         if name=='ARM':
             if self.phase!='ready' or (self.config[3] and time.monotonic()<self.gap_until):return bad
             self.active=self.config.copy();self.phase='armed';self.polls=0
-            return None if self.fault=='drop_arm' else ok
+            self.arm_count+=1
+            if self.arm_count==2 and self.arm_gate is not None:self.arm_gate.wait(2)
+            return None if self.fault=='drop_arm' else bad if self.fault=='reject_executed_arm' else ok
         if name=='FORCE':
             if self.phase!='armed' or self.active[3] or self.polls<2:return bad
             self.phase='done';return ok
