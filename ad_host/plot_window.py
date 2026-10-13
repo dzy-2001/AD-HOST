@@ -240,6 +240,9 @@ class PlotWindow(tk.Toplevel):
     def close(self):
         self.closed = True
         self._cancel.set()
+        # The worker owns its original queue until it exits. Detach it so a
+        # completed or late result cannot remain attached to a closed popup.
+        self._messages = queue.SimpleQueue()
         for token in (self._poll_id, self._zoom_id):
             if token is not None:
                 self.after_cancel(token)
