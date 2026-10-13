@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 import binascii
 import math
+import json
 import os
 from pathlib import Path
 
@@ -20,6 +21,9 @@ class ParseCancelled(Exception):
 class Recording:
     path: Path
     samples: np.ndarray
+    trigger_index: int | None = None
+    sample_rate_hz: float = SAMPLE_RATE_HZ
+    metadata: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,31 @@ def load_recording(path, *, cancel=None, progress=None, chunk_size=1024 * 1024,
     No full-size floating-point channel arrays are allocated.
     """
     path = Path(path)
+    metadata = None
+    sidecar = Path(str(path)+'.json')
+    if sidecar.exists():
+        if sidecar.stat().st_size > 1024*1024:
+            raise ValueError('记录元数据超过 1 MiB')
+        try:
+            metadata = json.loads(sidecar.read_text(encoding='utf-8'))
+            if not isinstance(metadata,dict):raise ValueError('元数据必须为对象')
+        except (ValueError,UnicodeError) as exc:
+            raise ValueError('无法解析记录元数据：'+str(exc)) from exc
+        if metadata.get('complete') is False:
+            raise ValueError('该记录被标记为未完成，不能作为完整波形打开')
+    if '.partial.' in path.name:
+        raise ValueError('该文件是未完成的采集记录')
+    is_v26 = metadata is not None and metadata.get('protocol') == 'V26'
+    if is_v26:
+        from .v26_protocol import validate_record
+        status = metadata.get('status')
+        keys = ('SAMPLES','TOTAL','HEX_CHARS','BLOCKS','ACTIVE_PRE','RATE')
+        if (metadata.get('complete') is not True or not isinstance(status,dict)
+                or any(type(status.get(k)) is not int for k in keys)):
+            raise ValueError('V26 记录状态或元数据缺失')
+        validate_record(status)
+        if metadata.get('written_hex_bytes') != status['HEX_CHARS']:
+            raise ValueError('V26 写入字节数与记录长度不一致')
     if chunk_size < 1:
         raise ValueError('读取块大小必须大于零')
     with path.open('rb') as handle:
@@ -72,6 +101,8 @@ def load_recording(path, *, cancel=None, progress=None, chunk_size=1024 * 1024,
                     index = int(np.flatnonzero(invalid)[0])
                     raise ValueError('第 %d 组电压原始值 %d 超过 12 位范围 0–4095；请检查文件格式和通道顺序'
                                      % (count + index, int(pairs[index, 0])))
+                if is_v26 and np.any(pairs[:,1] > 4095):
+                    raise ValueError('V26 电流原始值超过 12 位范围 0–4095')
                 samples[count:count + len(pairs)] = pairs
                 count += len(pairs)
             if progress is not None:
@@ -87,16 +118,21 @@ def load_recording(path, *, cancel=None, progress=None, chunk_size=1024 * 1024,
         raise ValueError('文件中没有完整的电压/电流数据')
     samples = samples[:count]
     samples.flags.writeable = False
-    return Recording(path, samples)
+    if is_v26 and count != status['SAMPLES']:
+        raise ValueError('文件实际点数与 V26 元数据不一致')
+    return Recording(path, samples, status['ACTIVE_PRE'] if is_v26 else None,
+                     status['RATE'] if is_v26 else SAMPLE_RATE_HZ, metadata)
 
 
-def make_view(recording, *, start=0, stop=None, max_points=6000, sample_rate_hz=SAMPLE_RATE_HZ):
+def make_view(recording, *, start=0, stop=None, max_points=6000, sample_rate_hz=None):
     """Rebuild a view from original samples, retaining both channels' extrema.
 
     Full-detail windows contain every sample. Overview windows contain each bin's
     V/I minimum and maximum at their original sample positions, plus endpoints.
     """
     size = len(recording.samples)
+    if sample_rate_hz is None:
+        sample_rate_hz = recording.sample_rate_hz
     stop = size if stop is None else stop
     if not 0 <= start < stop <= size:
         raise ValueError('显示范围必须满足 0 ≤ 起点 < 终点 ≤ 总点数')
@@ -120,7 +156,7 @@ def make_view(recording, *, start=0, stop=None, max_points=6000, sample_rate_hz=
     raw = recording.samples[indices]
     return CurveView(
         indices=indices,
-        time_ms=indices.astype(np.float64) * (1000.0 / sample_rate_hz),
+        time_ms=(indices.astype(np.float64) - (recording.trigger_index or 0)) * (1000.0 / sample_rate_hz),
         voltage=(raw[:, 0].astype(np.float64) * (2.0 / 4096.0) - 1.0) * 6.0,
         current=raw[:, 1].astype(np.float64),
     )

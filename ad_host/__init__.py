@@ -1,2 +1,2 @@
-"""AD-HOST STM32/FPGA protocol-aware acquisition client."""
-__version__ = "0.3.0"
+"""AD-HOST V26 trigger acquisition and waveform analysis."""
+__version__ = "0.4.0"

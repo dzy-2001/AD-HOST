@@ -11,6 +11,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 from .recording import ParseCancelled, SAMPLE_RATE_HZ, load_recording, make_view
+from .v26_protocol import reason_text
 
 
 class PlotWindow(tk.Toplevel):
@@ -72,12 +73,14 @@ class PlotWindow(tk.Toplevel):
         self.figure.subplots_adjust(left=.095, right=.98, top=.96, bottom=.10, hspace=.18)
         colors = ('#1268b3', '#d56a13')
         self.lines = []
+        self.trigger_lines = []
         for axis, color in zip(self.axes, colors):
             axis.set_facecolor('#f7f9fc')
             axis.grid(True, color='#dde3eb', linewidth=.6)
             axis.tick_params(labelsize=9)
             axis.ticklabel_format(axis='x', style='plain', useOffset=False)
             self.lines.append(axis.plot([], [], color=color, linewidth=.9)[0])
+            self.trigger_lines.append(axis.axvline(0, color='#be3344', linestyle='--', linewidth=1, visible=False))
             axis.callbacks.connect('xlim_changed', self._on_xlim)
         self.axes[0].set_ylabel('Voltage (V)')
         self.axes[1].set_ylabel('Current (raw counts)')
@@ -108,6 +111,8 @@ class PlotWindow(tk.Toplevel):
         self.current_view = None
         for line in self.lines:
             line.set_data([], [])
+        for line in self.trigger_lines:
+            line.set_visible(False)
         self.canvas.draw_idle()
         self.status.set('正在读取 ASCII HEX 并解析电压、电流…')
         self.details.set('格式：每组 8 个 HEX 字符，大端无符号；采样率 100 MHz / 通道。')
@@ -163,6 +168,16 @@ class PlotWindow(tk.Toplevel):
                 self.details.set('%s · 每通道 %s 点 · 记录时长 %.6f ms · 原始字节 %s B' % (
                     value.path.name, format(count, ','), count / SAMPLE_RATE_HZ * 1000,
                     format(count * 4, ',')))
+                if value.trigger_index is not None:
+                    suffix = '（触发点在记录末尾之后）' if value.trigger_index == count else ''
+                    self.details.set(self.details.get() + ' · 触发位置 %s · %s%s' % (
+                        format(value.trigger_index,','), reason_text(value.metadata['status'].get('REASON',0)),suffix))
+                    self.axes[1].set_xlabel('Time relative to trigger (ms)')
+                else:
+                    self.details.set(self.details.get() + ' · 无触发元数据，时间从记录起点计算')
+                    self.axes[1].set_xlabel('Time (ms)')
+                for line in self.trigger_lines:
+                    line.set_visible(value.trigger_index is not None)
                 self.overview()
             elif kind == 'cancelled':
                 self._set_busy(False)
@@ -180,11 +195,13 @@ class PlotWindow(tk.Toplevel):
             self.lines[0].set_data(view.time_ms, view.voltage)
             self.lines[1].set_data(view.time_ms, view.current)
             if reset_limits:
-                left = start / SAMPLE_RATE_HZ * 1000
-                right = (stop - 1) / SAMPLE_RATE_HZ * 1000
+                origin = self.recording.trigger_index or 0
+                rate = self.recording.sample_rate_hz
+                left = (start-origin) / rate * 1000
+                right = (stop - 1-origin) / rate * 1000
                 if right <= left:
-                    left -= .5 / SAMPLE_RATE_HZ * 1000
-                    right += .5 / SAMPLE_RATE_HZ * 1000
+                    left -= .5 / rate * 1000
+                    right += .5 / rate * 1000
                 self.axes[0].set_xlim(left, right)
                 self.fit_y()
                 self.toolbar.update()
@@ -233,8 +250,10 @@ class PlotWindow(tk.Toplevel):
             return
         left, right = sorted(self.axes[0].get_xlim())
         count = len(self.recording.samples)
-        start = max(0, min(count - 1, math.floor(left * SAMPLE_RATE_HZ / 1000)))
-        stop = max(start + 1, min(count, math.ceil(right * SAMPLE_RATE_HZ / 1000) + 1))
+        origin = self.recording.trigger_index or 0
+        rate = self.recording.sample_rate_hz
+        start = max(0, min(count - 1, math.floor(left * rate / 1000 + origin)))
+        stop = max(start + 1, min(count, math.ceil(right * rate / 1000 + origin) + 1))
         self._show(start, stop, False)
 
     def close(self):

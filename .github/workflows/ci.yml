@@ -22,6 +22,9 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Test TCP capture and command encoding
         run: python -m unittest discover -s tests -v
+      - name: V26 GUI acquisition and trigger plot smoke test
+        if: runner.os == 'Windows'
+        run: python tools/v26_gui_smoke.py
       - name: GUI smoke test
         if: runner.os == 'Windows'
         run: python tools/gui_smoke.py
@@ -44,6 +47,7 @@ jobs:
       - name: Pack documentation
         shell: pwsh
         run: |
+          Copy-Item docs/V26_QUICKSTART.md dist/AD-HOST/V26_QUICKSTART.md
           Copy-Item README.md dist/AD-HOST/README.md
           Copy-Item docs/QUICKSTART.md dist/AD-HOST/QUICKSTART.md
           Copy-Item docs/OFFLINE_PLOTTING.md dist/AD-HOST/OFFLINE_PLOTTING.md
