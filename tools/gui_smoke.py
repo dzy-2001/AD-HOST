@@ -55,9 +55,9 @@ with tempfile.TemporaryDirectory() as directory:
         time.sleep(.01)
     assert started
     snap = app.session.snapshot(); assert snap["capture_complete"], snap
-    assert Path(snap["capture_path"]).read_bytes() == payload
     app.stop()
     assert app.session.wait(10)
     thread.join(5); assert not errors, errors
+    assert Path(snap["capture_path"]).read_bytes() == payload
     app.on_close()
 print("PASS: Tk UI auto SET/GET saves exact ADC HEX payload")

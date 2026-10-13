@@ -91,6 +91,9 @@ class ProtocolCaptureTests(unittest.TestCase):
         s = self.session(server, chunk_bytes=32768, queue_chunks=8)
         s.start_capture(1)
         snap = wait_for(s, lambda x: x["capture_complete"] and x["capture_written_bytes"] == len(payload), timeout=15)
+        # V3 reports protocol completion before the writer closes the file and
+        # publishes its JSON. Wait for worker shutdown before checking disk.
+        s.stop(); self.assertTrue(s.wait(10)); server.finish()
         path = Path(snap["capture_path"])
         self.assertTrue(path.exists())
         self.assertEqual(path.read_bytes(), payload)
@@ -100,7 +103,6 @@ class ProtocolCaptureTests(unittest.TestCase):
         self.assertEqual(meta["received_hex_bytes"], ASCII_BYTES_PER_MS)
         self.assertEqual(meta["written_hex_bytes"], ASCII_BYTES_PER_MS)
         self.assertNotIn(b"\r\n*", path.read_bytes())
-        s.stop(); self.assertTrue(s.wait(10)); server.finish()
 
     def test_set_reject_does_not_create_capture_file(self):
         def peer(conn):

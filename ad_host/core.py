@@ -294,7 +294,7 @@ class CaptureSession:
             self._capture_started_clock = time.monotonic()
             self._capture_meta = {
                 "format_version": 1,
-                "application": "AD-HOST STM32/FPGA 0.2.0",
+                "application": "AD-HOST STM32/FPGA 0.3.0",
                 "capture_ms": self._capture_ms,
                 "payload_format": "uppercase ASCII HEX, big-endian uint16 voltage + uint16 current, 8 chars per pair",
                 "expected_hex_bytes": self._capture_expected,
@@ -513,7 +513,7 @@ class CaptureSession:
         snap = self.snapshot()
         return {
             "format_version": 2,
-            "application": "AD-HOST STM32/FPGA 0.2.0",
+            "application": "AD-HOST STM32/FPGA 0.3.0",
             "started_utc": self._started_utc,
             "ended_utc": self._ended_utc,
             "remote_ip": self.config.host,
