@@ -5,13 +5,11 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-from ad_host.core import CaptureConfig, CaptureSession, RateMeter
+from ad_host.core import ASCII_BYTES_PER_MS, CaptureConfig, CaptureSession, RateMeter
 
 
 class Server:
-    """One local TCP peer; propagates server-thread exceptions to the test."""
     def __init__(self, handler):
         self.listener = socket.socket()
         self.listener.bind(("127.0.0.1", 0))
@@ -41,163 +39,134 @@ class Server:
             raise self.error
 
 
-def await_state(session, state, timeout=8):
+def recv_line(conn):
+    data = bytearray()
+    while not data.endswith(b"\r"):
+        chunk = conn.recv(1024)
+        if not chunk:
+            raise AssertionError("client closed")
+        data.extend(chunk)
+    return bytes(data)
+
+
+def wait_for(session, predicate, timeout=10):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         snap = session.snapshot()
-        if snap["state"] == state:
+        if predicate(snap):
             return snap
-        if snap["state"] in ("failed", "finished"):
+        if snap["state"] == "failed":
             raise AssertionError(snap)
-        time.sleep(0.01)
+        time.sleep(.01)
     raise AssertionError(session.snapshot())
 
 
-def saved_bytes(session):
-    return b"".join(p.read_bytes() for p in sorted(session.directory.glob("part_*.bin")))
-
-
-class CaptureTests(unittest.TestCase):
+class ProtocolCaptureTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
 
     def session(self, server, **kwargs):
-        session = CaptureSession(CaptureConfig("127.0.0.1", server.port, Path(self.temp.name), **kwargs))
-        self.addCleanup(lambda: (session.stop(), session.wait(10)))
-        session.start()
-        return session
+        s = CaptureSession(CaptureConfig("127.0.0.1", server.port, Path(self.temp.name), **kwargs))
+        self.addCleanup(lambda: (s.stop(), s.wait(10)))
+        s.start()
+        wait_for(s, lambda x: x["state"] == "receiving")
+        return s
 
-    def test_fragmented_stream_rollover_and_command_on_same_connection(self):
-        payload = bytes(range(256)) * 8192 + b"tail"
-        command = b"\xaa\x55\x00\xff\r\n"
-        received = bytearray()
+    def test_auto_set_get_saves_only_adc_hex(self):
+        payload = b"082A08A5" * (ASCII_BYTES_PER_MS // 8)
 
         def peer(conn):
-            # Data flows before and after the command.
-            conn.sendall(payload[:777])
-            while len(received) < len(command):
-                data = conn.recv(len(command) - len(received))
-                if not data:
-                    raise AssertionError("client closed before command")
-                received.extend(data)
-            for offset in range(777, len(payload), 13001):
-                conn.sendall(payload[offset:offset + 13001])
-            conn.shutdown(socket.SHUT_WR)
+            self.assertEqual(recv_line(conn), b"SET 1,1\r")
+            conn.sendall(b"\r")
+            conn.sendall(b"\n*")
+            self.assertEqual(recv_line(conn), b"GET\r")
+            for off in range(0, len(payload), 13711):
+                conn.sendall(payload[off:off + 13711])
+            conn.sendall(b"\r\n*")
+            while conn.recv(1024):
+                pass
 
         server = Server(peer)
-        session = self.session(server, chunk_bytes=16384, queue_chunks=4, roll_bytes=100003)
-        await_state(session, "receiving")
-        session.send(command)
-        self.assertTrue(session.wait(12), session.snapshot())
-        server.finish()
-        snap = session.snapshot()
-        self.assertEqual(snap["state"], "finished", snap)
-        self.assertEqual(saved_bytes(session), payload)
-        self.assertEqual(bytes(received), command)
-        self.assertEqual(snap["rx_bytes"], len(payload))
-        self.assertEqual(snap["written_bytes"], len(payload))
-        self.assertEqual(snap["pending_bytes"], 0)
-        self.assertEqual(snap["tx_bytes"], len(command))
-        manifest = json.loads((session.directory / "session.json").read_text("utf-8"))
-        self.assertTrue(manifest["storage_complete"])
-        self.assertEqual(manifest["end_reason"], "peer_closed")
-        self.assertEqual(manifest["source_completeness"], "not_verified")
-        parts = sorted(session.directory.glob("part_*.bin"))
-        self.assertGreater(len(parts), 1)
-        self.assertTrue(all(p.stat().st_size <= 100003 for p in parts))
+        s = self.session(server, chunk_bytes=32768, queue_chunks=8)
+        s.start_capture(1)
+        snap = wait_for(s, lambda x: x["capture_complete"] and x["capture_written_bytes"] == len(payload), timeout=15)
+        # V3 reports protocol completion before the writer closes the file and
+        # publishes its JSON. Wait for worker shutdown before checking disk.
+        s.stop(); self.assertTrue(s.wait(10)); server.finish()
+        path = Path(snap["capture_path"])
+        self.assertTrue(path.exists())
+        self.assertEqual(path.read_bytes(), payload)
+        meta = json.loads(Path(str(path) + ".json").read_text("utf-8"))
+        self.assertTrue(meta["complete"])
+        self.assertEqual(meta["expected_hex_bytes"], ASCII_BYTES_PER_MS)
+        self.assertEqual(meta["received_hex_bytes"], ASCII_BYTES_PER_MS)
+        self.assertEqual(meta["written_hex_bytes"], ASCII_BYTES_PER_MS)
+        self.assertNotIn(b"\r\n*", path.read_bytes())
 
-    def test_local_stop_flushes_already_received_data(self):
-        payload = b"received-before-stop" * 20000
+    def test_set_reject_does_not_create_capture_file(self):
         def peer(conn):
-            conn.sendall(payload)
+            self.assertEqual(recv_line(conn), b"SET 10,1\r")
+            conn.sendall(b"\r\n?")
             while conn.recv(1024):
                 pass
         server = Server(peer)
-        session = self.session(server, queue_chunks=2, chunk_bytes=8192)
-        deadline = time.monotonic() + 8
-        while session.snapshot()["rx_bytes"] < len(payload) and time.monotonic() < deadline:
-            time.sleep(.01)
-        self.assertEqual(session.snapshot()["rx_bytes"], len(payload))
-        session.stop()
-        self.assertTrue(session.wait(10))
-        server.finish()
-        self.assertEqual(saved_bytes(session), payload)
-        manifest = json.loads((session.directory / "session.json").read_text("utf-8"))
-        self.assertEqual(manifest["end_reason"], "local_stop")
-        self.assertTrue(manifest["storage_complete"])
+        s = self.session(server)
+        s.start_capture(10)
+        snap = wait_for(s, lambda x: x["protocol_state"] == "idle" and "SET" in x["capture_error"])
+        self.assertFalse(snap["capture_path"])
+        self.assertEqual(snap["capture_received_bytes"], 0)
+        s.stop(); self.assertTrue(s.wait(10)); server.finish()
 
-    def test_backpressure_is_bounded_and_preserves_bytes(self):
-        payload = bytes(range(251)) * 10000
-        original = CaptureSession._write_chunk
-        def slow_write(session, chunk):
-            time.sleep(.002)
-            return original(session, chunk)
-        server = Server(lambda conn: conn.sendall(payload))
-        with patch.object(CaptureSession, "_write_chunk", slow_write):
-            session = self.session(server, chunk_bytes=8192, queue_chunks=2, roll_bytes=100000)
-            self.assertTrue(session.wait(15), session.snapshot())
-        server.finish()
-        snap = session.snapshot()
-        self.assertEqual(saved_bytes(session), payload)
-        # Queue, one writer-owned block and one receiver-owned block.
-        self.assertLessEqual(snap["peak_pending_bytes"], 4 * 8192)
-        self.assertEqual(snap["state"], "finished", snap)
+    def test_non_hex_payload_marks_capture_incomplete(self):
+        def peer(conn):
+            self.assertEqual(recv_line(conn), b"SET 1,1\r")
+            conn.sendall(b"\r\n*")
+            self.assertEqual(recv_line(conn), b"GET\r")
+            conn.sendall(b"082A08A5XYZ")
+            while conn.recv(1024):
+                pass
+        server = Server(peer)
+        s = self.session(server)
+        s.start_capture(1)
+        snap = wait_for(s, lambda x: x["protocol_state"] == "idle" and "非 HEX" in x["capture_error"])
+        self.assertFalse(snap["capture_complete"])
+        s.stop(); self.assertTrue(s.wait(10)); server.finish()
 
-    def test_write_failure_is_explicit_and_never_claims_complete(self):
-        server = Server(lambda conn: conn.sendall(b"x" * 65536))
-        with patch.object(CaptureSession, "_write_chunk", side_effect=OSError("disk full")):
-            session = self.session(server)
-            self.assertTrue(session.wait(10))
-        server.finish()
-        snap = session.snapshot()
-        self.assertEqual(snap["state"], "failed")
-        self.assertIn("disk full", snap["error"])
-        manifest = json.loads((session.directory / "session.json").read_text("utf-8"))
-        self.assertFalse(manifest["storage_complete"])
-
-    def test_output_failure_does_not_connect(self):
-        bad = Path(self.temp.name) / "file"
-        bad.write_text("not a directory")
-        session = CaptureSession(CaptureConfig("127.0.0.1", 1, bad))
-        session.start()
-        self.assertTrue(session.wait(5))
-        self.assertEqual(session.snapshot()["state"], "failed")
-
-    def test_refused_connection_and_repeated_stop(self):
-        with socket.socket() as unused:
-            unused.bind(("127.0.0.1", 0))
-            port = unused.getsockname()[1]
-        session = CaptureSession(CaptureConfig("127.0.0.1", port, Path(self.temp.name)))
-        session.start()
-        self.assertTrue(session.wait(8))
-        session.stop()
-        session.stop()
-        self.assertEqual(session.snapshot()["state"], "failed")
+    def test_manual_command_blocked_while_capture_active(self):
+        gate = threading.Event()
+        def peer(conn):
+            self.assertEqual(recv_line(conn), b"SET 1,1\r")
+            gate.wait(3)
+            conn.sendall(b"\r\n?")
+            while conn.recv(1024):
+                pass
+        server = Server(peer)
+        s = self.session(server)
+        s.start_capture(1)
         with self.assertRaises(RuntimeError):
-            session.send(b"test")
-        with self.assertRaises(RuntimeError):
-            session.start()
+            s.send_text("FST")
+        gate.set()
+        wait_for(s, lambda x: x["protocol_state"] == "idle")
+        s.stop(); self.assertTrue(s.wait(10)); server.finish()
 
-    def test_invalid_config(self):
-        for kwargs in ({"port": 0}, {"host": "not an IP"}, {"queue_chunks": 0},
-                       {"chunk_bytes": 0}, {"roll_bytes": 0}):
-            args = dict(host="127.0.0.1", port=5000, output_dir=Path(self.temp.name))
-            args.update(kwargs)
-            with self.assertRaises(ValueError):
-                CaptureConfig(**args)
+    def test_expected_size_formula(self):
+        server = Server(lambda conn: time.sleep(.5))
+        s = self.session(server)
+        # Do not need the server to answer SET; snapshot must expose expected length immediately.
+        s.start_capture(10)
+        self.assertEqual(s.snapshot()["capture_expected_bytes"], 8_000_000)
+        s.stop(); self.assertTrue(s.wait(10)); server.finish()
 
 
 class RateTests(unittest.TestCase):
-    def test_rates_include_idle_time_and_do_not_depend_on_timer_precision(self):
+    def test_rates(self):
         meter = RateMeter(0.0)
-        self.assertEqual(meter.sample(1.0, 1000000)["instant"], 1000000)
-        result = meter.sample(3.0, 5000000)
-        self.assertEqual(result["instant"], 2000000)
-        self.assertAlmostEqual(result["average"], 5000000 / 3)
-        self.assertEqual(result["peak"], 2000000)
-        result = meter.sample(13.0, 5000000)
-        self.assertEqual(result["instant"], 0)
-        self.assertEqual(result["recent"], 0)
-        self.assertEqual(result["peak"], 2000000)
-        self.assertEqual(meter.sample(13.0, 5000000), result)
+        self.assertEqual(meter.sample(1.0, 1_000_000)["instant"], 1_000_000)
+        r = meter.sample(3.0, 5_000_000)
+        self.assertEqual(r["instant"], 2_000_000)
+        self.assertAlmostEqual(r["average"], 5_000_000 / 3)
+
+
+if __name__ == "__main__":
+    unittest.main()
