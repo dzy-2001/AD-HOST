@@ -38,7 +38,7 @@ class V28SessionTests(unittest.TestCase):
         self.assertEqual(meta['status']['CFG_SAMPLES'],1) # time mode does not depend on this register
         self.assertEqual(meta['adc_clock_hz'],100000000)
         self.assertEqual(meta['status']['TRIGGER_DELAY_TICKS'],17);self.assertEqual(meta['status']['TRIGGER_PHASE'],3)
-        self.assertIn('CFG 0,2,30,1,2500,0,1500,4,3,1000,5',[c for c,t in board.commands])
+        self.assertIn('CFG 0,2,30,1,2048,0,2048,4,3,1000,5',[c for c,t in board.commands])
         self.assertEqual(board.interleaved,[])
 
     def test_rate_button_command_does_not_arm_and_rejected_write_invalidates_config(self):

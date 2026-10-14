@@ -2,7 +2,6 @@
 from pathlib import Path
 from PyQt6.QtCore import QObject,QTimer
 from ..models.waveform import sample_at,visible_range,measurement
-from ..models.v26_protocol import reason_text
 from ..models.calibration import CALIBRATION
 from .waveform_worker import WaveformWorker
 
@@ -57,14 +56,13 @@ class WaveformController(QObject):
         if result is None or result[0]!=self.token:return
         _,kind,value,error=result
         if error:
-            self.busy=False;self.view.choose_button.setEnabled(True);self.view.cancel_button.setEnabled(False);self.view.status.setText(str(error));return
+            self.busy=False;self.view.choose_button.setEnabled(True);self.view.cancel_button.setEnabled(False);self.diagnostics['error']=str(error);self.view.status.setText('解析或绘图失败 · 查看设备诊断');return
         if kind=='load':
             self.recording,self.current_view=value;self.busy=False;self.view.choose_button.setEnabled(True);self.view.cancel_button.setEnabled(False)
             self.view.set_record_enabled(True);self.view.tools['trigger'].setEnabled(self.recording.trigger_index is not None)
             count=len(self.recording.samples);self.view.start.setMaximum(count-1);self.view.stop.setMaximum(count)
             self.view.start.setValue(0);self.view.stop.setValue(count);self.view.progress.setValue(1000)
             origin=self.recording.trigger_index
-            st=(self.recording.metadata or {}).get('status',{})
             v28=(self.recording.metadata or {}).get('protocol')=='V28'
             self.view.details.setText(f'{count:,} 点 · {self.recording.sample_rate_hz/1e6:g} MSPS'+('（默认）' if origin is None else '')+' · V / A')
             self.diagnostics=dict(file=str(self.recording.path),samples=count,sample_rate_hz=self.recording.sample_rate_hz,
@@ -172,8 +170,9 @@ class WaveformController(QObject):
         if self.recording is None:return
         if not isinstance(path,(str,Path)):path=self.view.save_path()
         if path:
-            try:self.view.figure.savefig(str(path),dpi=160);self.view.status.setText('已保存当前视图：'+str(path))
-            except (OSError,ValueError) as exc:self.view.status.setText('图片保存失败：'+str(exc))
+            try:self.view.figure.savefig(str(path),dpi=160);self.diagnostics['image_path']=str(path);self.view.status.setText('图片已保存')
+            except (OSError,ValueError) as exc:
+                self.diagnostics['error']=str(exc);self.view.status.setText('图片保存失败 · 查看设备诊断')
 
     def close(self):
         if self.closed:return

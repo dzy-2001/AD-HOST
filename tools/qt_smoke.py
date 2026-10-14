@@ -30,11 +30,12 @@ def run(v28=False):
             window.len_mode.setCurrentIndex(1);window.length.setValue(10001);window.pre.setValue(30)
             assert window.length.suffix()==' 点' and '采样点数' in window.length_label.text()
             assert '70%' in window.pre_hint.text()
-            assert '+6,621.094 V' in window.vth_hint.text()
+            assert window.vth.value()==2048 and window.ith.value()==2048
+            assert window.vth_hint.text()=='+0.000 V' and window.ith_hint.text()=='+0.000 A'
             window.vth.setValue(3072);window.ith.setValue(3072)
             assert window.vth_hint.text()=='+15,000.000 V' and window.ith_hint.text()=='+120.000 A'
             assert window.ith_hint.property('cssClass')=='threshold-value'
-            window.vth.setValue(2500);window.ith.setValue(1500)
+            window.vth.setValue(2048);window.ith.setValue(2048)
             assert '手动触发' in window.mode_hint.text()
             assert window.threshold_settings.isHidden()
             window.mode.setCurrentIndex(1);assert not window.threshold_settings.isHidden()
@@ -47,7 +48,7 @@ def run(v28=False):
             if v28:
                 window.actions['configure'].click()
                 pump(app,lambda:not controller.session.snapshot()['busy'] and controller.session.snapshot()['status'].get('CFG_RATE_MSPS')==5)
-                assert 'CFG 0,2,30,0,2500,0,1500,4,3,1000,5' in [c for c,t in board.commands]
+                assert 'CFG 0,2,30,0,2048,0,2048,4,3,1000,5' in [c for c,t in board.commands]
                 assert not any(c.startswith('RATE ') for c,t in board.commands)
                 assert 'ARM' not in [c for c,t in board.commands]
                 controller.refresh()
@@ -80,6 +81,9 @@ def run(v28=False):
             assert wave.view.readout.cells['delta']['index'].text()=='+5'
             assert wave.view.readout.cells['delta']['time'].text()==('+0.001000000' if v28 else '+0.000050000')
             wave.save(Path(directory)/'plot.png');assert (Path(directory)/'plot.png').stat().st_size>1000
+            assert wave.view.status.text()=='图片已保存'
+            controller.refresh()
+            assert 'current_probe_a_per_v' in window.log.toPlainText() and 'image_path' in window.log.toPlainText()
             screenshots=os.environ.get('AD_HOST_SCREENSHOTS')
             if screenshots:
                 output=Path(screenshots);output.mkdir(parents=True,exist_ok=True);app.processEvents();wave.view.canvas.draw()
@@ -87,7 +91,8 @@ def run(v28=False):
                 window.mode.setCurrentIndex(1);app.processEvents()
                 window.grab().save(str(output/'main-auto.png'))
                 window.mode.setCurrentIndex(0)
-                wave.view.resize(950,680);app.processEvents()
+                wave.view.resize(950,680);app.processEvents();wave.view.canvas.draw()
+                assert wave.view.axes[1].xaxis.label.get_window_extent(wave.view.canvas.get_renderer()).y0>=0
                 wave.view.grab().save(str(output/'waveform-small.png'))
                 window.resize(950,680);app.processEvents()
                 start_button=window.actions['start']

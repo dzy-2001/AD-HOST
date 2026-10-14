@@ -31,7 +31,7 @@ class WaveformWindow(QMainWindow):
         self.range_button=button('显示范围','crop-alt');row.addWidget(self.range_button);row.addStretch()
         row.addWidget(QLabel('测量光标'));self.cursor_choice=combo(['A','B']);row.addWidget(self.cursor_choice)
         self.figure=Figure(figsize=(11,5),dpi=100,facecolor=NORD6)
-        self.axes=self.figure.subplots(2,1,sharex=True);self.figure.subplots_adjust(left=.09,right=.98,top=.95,bottom=.11,hspace=.18)
+        self.axes=self.figure.subplots(2,1,sharex=True);self.figure.subplots_adjust(left=.12,right=.98,top=.95,bottom=.16,hspace=.18)
         self.lines=[];self.triggers=[];self.hover=[];self.markers={'A':[],'B':[]}
         for ax,color in zip(self.axes,(NORD10,NORD12)):
             ax.set_facecolor('white');ax.grid(True,color=NORD4,linewidth=.6);ax.tick_params(labelsize=9)

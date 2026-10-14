@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
         self.enable_i=QCheckBox('电流 · 通道 B');self.enable_i.setChecked(True)
         comparisons=['≥  大于等于','>  大于','=  等于','≤  小于等于','<  小于']
         self.vcmp=combo(comparisons);self.icmp=combo(comparisons);self.icmp.setCurrentIndex(4)
-        self.vth=spin(0,4095,2500,' ADC');self.ith=spin(0,4095,1500,' ADC')
+        self.vth=spin(0,4095,2048,' ADC');self.ith=spin(0,4095,2048,' ADC')
         self.vth_hint=QLabel();self.ith_hint=QLabel()
         for r,enabled,comparison,threshold,hint in ((1,self.enable_v,self.vcmp,self.vth,self.vth_hint),(2,self.enable_i,self.icmp,self.ith,self.ith_hint)):
             comparison.setMinimumWidth(165);threshold.setMinimumWidth(190)

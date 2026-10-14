@@ -13,9 +13,9 @@ class AcquisitionSettings:
     length: int = 10
     pre: int = 30
     mode: int = 0
-    vth: int = 2500
+    vth: int = 2048
     vcmp: int = 0
-    ith: int = 1500
+    ith: int = 2048
     icmp: int = 4
     enable: int = 3
     gap_ms: int = 1000
