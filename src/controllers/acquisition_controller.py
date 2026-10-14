@@ -67,12 +67,13 @@ class AcquisitionController(QObject):
         record=self.selected_record();path=(record['archive'] or record['source']) if latest and record else ''
         if path:active.load_path(path)
 
-    def collect_records(self):
+    def collect_records(self,snapshot=None):
         if not self.session:return
-        for path in self.session.snapshot()['records']:
+        snapshot=self.session.snapshot() if snapshot is None else snapshot
+        for path in snapshot['records']:
             if path not in self.records:
                 self.records[path]=dict(source=path,archive='')
-                self.view.record_list.addItem(Path(path).stem+' · 待保存')
+                self.view.record_list.addItem(f'记录 {len(self.records)} · '+Path(path).stem+' · 待保存')
                 self.view.record_list.setCurrentRow(self.view.record_list.count()-1)
 
     def selected_record(self):
@@ -91,6 +92,8 @@ class AcquisitionController(QObject):
         # Snapshot selection before the modal dialog: new captures may arrive meanwhile.
         source=record['source'];parent=self.view.confirm_archive_directory()
         if not parent or self.closing:return
+        if Path(parent).resolve().is_relative_to(Path(self.cache.name).resolve()):
+            self.view.show_error('请选择软件临时目录以外的存档位置，避免退出时清理存档。');return
         self.view.output.setText(parent)
         self.archive_job=ArchiveJob(source,parent);self.archive_job.start()
         self.view.notice.setText('正在保存选中的波形记录…');self.update_selected_record()
@@ -103,14 +106,14 @@ class AcquisitionController(QObject):
         else:
             record=self.records[str(job.source)];record['archive']=str(job.path)
             row=list(self.records).index(str(job.source))
-            self.view.record_list.item(row).setText(job.path.parent.name+' · 已保存')
+            self.view.record_list.item(row).setText(f'记录 {row+1} · '+job.path.parent.name+' · 已保存')
             self.view.notice.setText('已存档：'+str(job.path.parent))
         self.update_selected_record()
 
     def request_close(self):
-        self.collect_records();self.poll_archive()
-        pending=sum(not r['archive'] for r in self.records.values())
         snap=self.session.snapshot() if self.session else {}
+        self.collect_records(snap);self.poll_archive()
+        pending=sum(not r['archive'] for r in self.records.values())
         active=bool(snap.get('receiving') or snap.get('busy') or snap.get('repeat') or snap.get('status',{}).get('PENDING',0) or snap.get('status',{}).get('STATUS',0)&2)
         if (pending or active) and not self.view.confirm_discard(pending):return
         self.close()

@@ -31,10 +31,11 @@ class QtArchivingTests(unittest.TestCase):
         w=self.window
         w.host.setText('127.0.0.1');w.port.setValue(self.board.port)
         w.output.setText(str(Path(self.temp.name)/'archives'))
-        w.len_mode.setCurrentIndex(1);w.length.setValue(10);w.mode.setCurrentIndex(1)
+        w.len_mode.setCurrentIndex(1);w.length.setValue(10);w.mode.setCurrentIndex(1);w.gap.setValue(0)
         w.connect_button.click();self.pump(lambda:self.controller.session.snapshot()['can_start'])
 
     def capture(self,total):
+        self.pump(lambda:self.controller.session.snapshot()['can_start'])
         self.window.actions['start'].click()
         self.pump(lambda:self.controller.session.snapshot()['completed']==total)
 
@@ -73,6 +74,24 @@ class QtArchivingTests(unittest.TestCase):
         with patch.object(w,'confirm_discard',return_value=True):c.request_close()
         self.pump(lambda:w.allow_close)
         self.assertTrue(saved.exists());self.assertFalse(Path(c.cache.name).exists())
+
+    def test_finishing_capture_during_close_check_still_requires_confirmation(self):
+        self.connect();c=self.controller;w=self.window
+        first=c.session.snapshot();first.update(records=[],receiving=True)
+        second=c.session.snapshot();second.update(records=['newly-completed.hex'],receiving=False)
+        with patch.object(c.session,'snapshot',side_effect=[first,second]), \
+             patch.object(w,'confirm_discard',return_value=False) as confirm, \
+             patch.object(c,'close') as close:
+            c.request_close()
+            confirm.assert_called_once();close.assert_not_called()
+
+    def test_destination_inside_cache_is_not_treated_as_saved(self):
+        self.connect();self.capture(1);c=self.controller;w=self.window
+        destination=Path(c.cache.name)/'archive'
+        with patch.object(w,'confirm_archive_directory',return_value=str(destination)):
+            w.save_record_button.click()
+        self.assertIsNone(c.archive_job);self.assertFalse(destination.exists())
+        self.assertFalse(c.selected_record()['archive']);self.assertIn('临时目录',w.notice.text())
 
     def test_archive_failure_can_retry_without_losing_cached_record(self):
         self.connect();self.capture(1);c=self.controller;w=self.window
