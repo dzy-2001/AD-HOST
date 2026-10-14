@@ -1,4 +1,4 @@
-from ad_host.v26_gui import main
+from src.app import main
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

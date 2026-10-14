@@ -22,6 +22,16 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Test TCP capture and command encoding
         run: python -m unittest discover -s tests -v
+      - name: Qt6 acquisition, interaction and lifecycle smoke test
+        env:
+          QT_QPA_PLATFORM: offscreen
+          AD_HOST_SCREENSHOTS: screenshots
+        run: python tools/qt_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Qt6-screenshots-${{ matrix.os }}
+          path: screenshots/
       - name: V26 GUI acquisition and trigger plot smoke test
         if: runner.os == 'Windows'
         run: python tools/v26_gui_smoke.py
@@ -43,7 +53,7 @@ jobs:
       - name: Install packaging tool
         run: python -m pip install pyinstaller==6.16.0 -r requirements.txt
       - name: Build portable app
-        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name AD-HOST --collect-submodules tkinter run.py
+        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name AD-HOST --collect-all qtawesome --exclude-module tkinter --exclude-module PySide6 run.py
       - name: Portable executable startup smoke test
         shell: pwsh
         run: |
@@ -54,6 +64,7 @@ jobs:
       - name: Pack documentation
         shell: pwsh
         run: |
+          Copy-Item docs/QT6_QUICKSTART.md dist/AD-HOST/QT6_QUICKSTART.md
           Copy-Item docs/V26_QUICKSTART.md dist/AD-HOST/V26_QUICKSTART.md
           Copy-Item README.md dist/AD-HOST/README.md
           Copy-Item docs/QUICKSTART.md dist/AD-HOST/QUICKSTART.md
