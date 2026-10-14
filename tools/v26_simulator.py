@@ -49,6 +49,9 @@ class Simulator:
         self.commands.append((cmd,time.monotonic()))
         name=cmd.split(' ',1)[0]
         ok=b'\r\n*';bad=b'\r\n?'
+        if name in ('VER','FST') and self.fault=='identity_rejected':return bad
+        if name=='VER' and self.fault=='identity_changed':return b'V1.0.14 (V27)'+ok
+        if name=='FST' and self.fault=='identity_changed':return b'ID:1234,VER:0300,INIT:0,IERR:7,HCLK:120000000,SDCLK:60000000'+ok
         if name=='VER':return b'V1.0.13 (V26)'+ok
         if name in ('FST','FREG'):return b'ID:ADFC,VER:0200,INIT:1,IERR:0,SET:10,1,HCLK:168000000,SDCLK:56000000'+ok
         if name=='TST':

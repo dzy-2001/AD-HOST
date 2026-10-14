@@ -88,12 +88,6 @@ def parse_tst(text):
     return result
 
 
-def check_identity(version, fst):
-    expected = dict(ID='ADFC', VER='0200', INIT='1', IERR='0', HCLK='168000000', SDCLK='56000000')
-    if version.strip() != 'V1.0.13 (V26)' or any(fst.get(k) != v for k,v in expected.items()):
-        raise ValueError('设备版本或初始化状态不符合 V26；请检查 VER/FST 诊断')
-
-
 def can_arm(s):
     return (s.get('STATUS',0)&0x2061)==0x2061 and not s.get('STATUS',0)&ERROR_MASK and s.get('PENDING')==0 and s.get('CTRL')==0
 

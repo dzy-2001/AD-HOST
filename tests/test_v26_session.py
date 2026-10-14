@@ -184,4 +184,17 @@ class SessionTests(unittest.TestCase):
         self.assertIsNone(meta['active_settings'])
         self.assertEqual(meta['status']['SAMPLES'],20)
 
+    def test_changed_identity_connects_and_captures(self):
+        board,s=self.connect(fault='identity_changed')
+        self.assertEqual(s.snapshot()['diagnostics']['VER'],'V1.0.14 (V27)')
+        self.assertIn('IERR:7',s.snapshot()['diagnostics']['FST'])
+        s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1))
+        snap=wait(s,lambda x:x['completed']==1)
+        self.assertEqual(Path(snap['last_path']).read_bytes(),b'08000ABC'*10)
+
+    def test_unsupported_identity_queries_do_not_block_status_connection(self):
+        board,s=self.connect(fault='identity_rejected')
+        self.assertTrue(s.snapshot()['can_start'])
+        self.assertIn('TST',[c for c,t in board.commands])
+
 if __name__=='__main__':unittest.main()

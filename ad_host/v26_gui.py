@@ -15,7 +15,7 @@ class App(ttk.Frame):
         super().__init__(root,padding=14);self.pack(fill='both',expand=True);self.root=root
         self.session=None;self.plot_window=None;self.meter=None;self.closing=False;self._last_sample=0
         self._last_text='';self._after=None
-        root.title('AD-HOST V26 · 触发采集与波形分析 0.4.0');root.geometry('1160x850');root.minsize(980,750)
+        root.title('AD-HOST V26 · 触发采集与波形分析 0.4.1');root.geometry('1160x850');root.minsize(980,750)
         root.protocol('WM_DELETE_WINDOW',self.on_close)
         style=ttk.Style(root)
         if 'clam' in style.theme_names():style.theme_use('clam')
@@ -142,7 +142,7 @@ class App(ttk.Frame):
             if not 1<=timeout<=600:raise ValueError('GET 无进度超时应为 1–600 秒')
             config=CaptureConfig(self.host.get().strip(),int(self.port.get()),Path(self.output.get()),queue_chunks=int(self.buffer.get()))
             self.session=V26Session(config,progress_timeout=timeout);self.session.start()
-            self.meter=RateMeter(time.monotonic());self.notice.set('正在串行检查 VER、FST、TST…')
+            self.meter=RateMeter(time.monotonic());self.notice.set('正在读取版本信息与采集状态…')
         except (ValueError,OSError) as exc:messagebox.showerror('连接设置',str(exc),parent=self.root)
 
     def disconnect(self):
@@ -188,7 +188,7 @@ class App(ttk.Frame):
         if snap:
             self.state.set(f"{snap['state']} · {snap['phase']}")
             if snap['error']:self.notice.set(snap['error'])
-            elif snap['state']=='connected':self.notice.set('V26 已连接；配置、触发、读取按设备状态顺序执行。')
+            elif snap['state']=='connected':self.notice.set('已连接；版本严格检查已停用，按设备状态执行采集。')
             for button,key in ((self.apply_button,'can_start'),(self.start_button,'can_start'),(self.force_button,'can_force'),
                                (self.cancel_button,'can_cancel'),(self.read_button,'can_read'),(self.release_button,'can_release')):
                 button.configure(state='normal' if snap[key] else 'disabled')

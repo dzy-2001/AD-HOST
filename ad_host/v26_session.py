@@ -11,7 +11,7 @@ import time
 import uuid
 
 from .v26_protocol import (AcquisitionSettings,ERROR_MASK,can_arm,can_get,can_force,
-                           can_release,parse_tst,parse_fst,check_identity,validate_record)
+                           can_release,parse_tst,validate_record)
 from .v26_transport import Transport,RecordWriter,CommandRejected,Stopped
 
 
@@ -70,7 +70,7 @@ class V26Session:
         if action not in ('configure','start','arm','force','cancel','read','release','stop_repeat','query','finit','clear'):
             raise ValueError('不支持的操作')
         with self._lock:
-            if self.state!='connected':raise RuntimeError('请先连接并通过 V26 预检')
+            if self.state!='connected':raise RuntimeError('请先连接设备并读取采集状态')
             if action=='stop_repeat':self._repeat_stopped=True;self.repeating=False;self._event('已停止后续记录，当前记录继续完成');return
             if action=='cancel' and self.receiving:
                 self.repeating=False;self.stop();return
@@ -127,8 +127,14 @@ class V26Session:
             sock=socket.create_connection((self.config.host,self.config.port),timeout=self.command_timeout)
             self._sock=sock;sock.settimeout(.1);sock.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,self.config.rcvbuf_bytes)
             self.transport=Transport(sock,self._halt,lambda n:self._add('rx',n),lambda n:self._add('tx',n),self.command_timeout)
-            version=self._request('VER');fst=parse_fst(self._request('FST'));check_identity(version,fst);self._status()
-            self.state='connected';self._event('V26 预检通过；已有记录按实际状态处理')
+            # Identity replies are diagnostic only; firmware labels do not gate connection.
+            for command in ('VER','FST'):
+                try:self._request(command)
+                except CommandRejected:
+                    with self._lock:self.diagnostics[command]='? (设备未提供此诊断)'
+                    self._event(command+' 查询未被接受，继续读取采集状态')
+            self._status()
+            self.state='connected';self._event('已连接并读取采集状态；版本严格检查已停用')
             while not self._halt.is_set():
                 try:item=self._actions.get(timeout=max(.001,min(.05,self._next_poll-time.monotonic())))
                 except queue.Empty:item=None
@@ -254,7 +260,7 @@ class V26Session:
         self.receiving=True;self.phase='读取波形，已暂停状态查询'
         base=f'capture_{self.index:04d}_{s["SAMPLES"]}pairs_{uuid.uuid4().hex[:6]}'
         partial=self.directory/(base+'.partial.hex');final=self.directory/(base+'.hex')
-        meta=dict(format_version=3,application='AD-HOST V26 0.4.0',protocol='V26',complete=False,
+        meta=dict(format_version=3,application='AD-HOST V26 0.4.1',protocol='V26',complete=False,
                   status=s,active_settings=asdict(self.active) if self.active else None,
                   active_configuration_known=self.active is not None,diagnostics=dict(self.diagnostics),
                   expected_hex_bytes=self.expected,started_utc=datetime.now(timezone.utc).isoformat())

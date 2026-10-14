@@ -60,10 +60,9 @@ class ProtocolTests(unittest.TestCase):
         s=self.p.parse_tst(DONE);self.assertTrue(self.p.can_release(s))
         s['STATUS']|=0x100;self.assertFalse(self.p.can_release(s))
 
-    def test_fst_set_comma_and_validation(self):
+    def test_fst_set_comma(self):
         f=self.p.parse_fst('ID:ADFC,VER:0200,INIT:1,IERR:0,SET:10,1,HCLK:168000000,SDCLK:56000000')
-        self.assertEqual(f['SET'],'10,1');self.p.check_identity('V1.0.13 (V26)',f)
-        with self.assertRaises(ValueError):self.p.check_identity('V1.0.12 (V25)',f)
+        self.assertEqual(f['SET'],'10,1')
 
     def test_status_missing_duplicate_and_invalid_fields(self):
         for text in (DONE+',STATUS:2061',DONE.replace('CTRL:0,',''),DONE.replace('TOTAL:400000','TOTAL:0x400000')):
