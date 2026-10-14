@@ -1,4 +1,4 @@
-# AD-HOST 0.5.1 · Qt6 / MVC
+# AD-HOST 0.5.2 · Qt6 / MVC
 
 完整解压便携包，运行 AD-HOST.exe。窗口右上显示连接状态，顶部设置 IP、端口和保存目录；采集、记录、诊断分别位于三个页签。
 
@@ -47,7 +47,7 @@ Model 不依赖 Qt。View 不操作 socket 或读取数据文件。Controller �
 
 ## 样式与依赖
 
-前端使用 PyQt6 6.9.1、QtAwesome 1.4.0，图形使用 Matplotlib 的 Qt 画布；保留 NumPy/Matplotlib 版本。样式来源为用户的 Nord Light styles.py，未改动原文件；theme.py 补充可见下拉箭头、数字调节箭头、勾选标记、下拉选中文字对比度、禁用按钮和页签样式。
+前端使用 PyQt6 6.9.1、QtAwesome 1.4.0，图形使用 Matplotlib 的 Qt 画布；保留 NumPy/Matplotlib 版本。样式来源为用户的 Nord Light styles.py，未改动原文件；通用控件外观完全遵循 GLOBAL_STYLE。CheckBox 勾选态采用原定纯色填充；ComboBox 和 SpinBox 按原文件隐藏箭头；下拉选中文字及按钮状态也由通用样式和 Qt 基础风格决定。theme.py 不再覆盖这些控件，不再生成勾号或箭头图片，只负责加载样式、提供 QtAwesome 操作图标，并补充原文件未定义的页签、进度条、参数摘要和光标表格样式。通用控件后续如需修改，应统一维护 styles.py。
 
 源码运行：安装 Python 3.10+，执行 `python -m pip install -r requirements.txt`，然后 `python run.py`。不需要启动 Tk 界面。
 
