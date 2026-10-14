@@ -1,6 +1,7 @@
 """Qt widgets and presentation only; commands are handled by controllers."""
 from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QLabel,QLineEdit,
                              QTabWidget,QCheckBox,QProgressBar,QTextEdit,QFileDialog,QScrollArea,QListWidget,QMessageBox)
 from .widgets.controls import button,card,spin,combo
@@ -20,7 +21,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__();self.allow_close=False;self.diagnostic_messages=[]
-        self.setWindowTitle('AD-HOST 0.6.3 · 采集与波形');self.setWindowIcon(icon('wave-square'))
+        self.setWindowTitle('AD-HOST 0.6.4 · 采集与波形');self.setWindowIcon(icon('wave-square'))
         self.resize(1180,870);self.setMinimumSize(950,680)
         root=QWidget();self.setCentralWidget(root);layout=QVBoxLayout(root);layout.setContentsMargins(18,14,18,12)
         title=QLabel('AD-HOST  /  双通道采集');title.setProperty('cssClass','title');layout.addWidget(title)
@@ -186,6 +187,22 @@ class MainWindow(QMainWindow):
                                    QMessageBox.StandardButton.Discard|QMessageBox.StandardButton.Cancel,
                                    QMessageBox.StandardButton.Cancel)
         return answer==QMessageBox.StandardButton.Discard
+
+    def show_notice(self,message):
+        self.notice.setText(str(message));self.notice.setProperty('cssClass','')
+        self.notice.style().unpolish(self.notice);self.notice.style().polish(self.notice)
+
+    def update_diagnostics(self,text):
+        vertical=self.log.verticalScrollBar();horizontal=self.log.horizontalScrollBar()
+        y=vertical.value();x=horizontal.value();cursor=self.log.textCursor()
+        position=cursor.position();anchor=cursor.anchor()
+        follow=y>=vertical.maximum()-2 and not cursor.hasSelection()
+        self.log.setPlainText(text)
+        end=self.log.document().characterCount()-1
+        restored=self.log.textCursor();restored.setPosition(min(anchor,end))
+        restored.setPosition(min(position,end),QTextCursor.MoveMode.KeepAnchor)
+        self.log.setTextCursor(restored)
+        vertical.setValue(vertical.maximum() if follow else y);horizontal.setValue(x)
 
     def show_error(self,message):
         text=str(message);self.diagnostic_messages.append(text);self.diagnostic_messages=self.diagnostic_messages[-100:]

@@ -47,3 +47,50 @@ class QtDiagnosticsTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+
+class QtDiagnosticLogTests(unittest.TestCase):
+    def setUp(self):
+        self.app,self.window,self.controller=create_application();self.app.setQuitOnLastWindowClosed(False)
+        self.window.show();self.window.tabs.setCurrentIndex(2);self.controller.timer.stop();self.app.processEvents()
+
+    def tearDown(self):
+        self.controller.close();self.pump(lambda:self.window.allow_close)
+
+    def pump(self,predicate):
+        end=time.monotonic()+5
+        while not predicate():
+            self.assertLess(time.monotonic(),end)
+            self.controller.refresh();self.app.processEvents();time.sleep(.005)
+        self.controller.refresh();self.app.processEvents()
+
+    def test_valid_query_clears_stale_local_error_and_shows_response(self):
+        from tools.v26_simulator import Simulator
+        board=Simulator(rate_support=True)
+        try:
+            w=self.window;c=self.controller
+            w.host.setText('127.0.0.1');w.port.setValue(board.port);w.connect_button.click()
+            self.pump(lambda:c.session.snapshot()['can_start'])
+            c.send_command('VERX');self.assertEqual(w.notice.property('cssClass'),'error')
+            w.command.setText('VER');w.send_button.click();self.pump(lambda:not c.session.snapshot()['busy'])
+            self.assertNotEqual(w.notice.property('cssClass'),'error')
+            self.assertNotIn('不受支持',w.notice.text())
+            self.assertIn('接收 VER',w.log.toPlainText());self.assertIn('V1.0.15 (V28)',w.log.toPlainText())
+        finally:
+            c.disconnect();self.pump(lambda:c.session.wait(0));board.close()
+
+    def test_refresh_follows_bottom_but_preserves_scrolled_position_and_selection(self):
+        from PyQt6.QtGui import QTextCursor
+        w=self.window;c=self.controller
+        w.diagnostic_messages=[f'entry {i:03d}' for i in range(90)]
+        c.refresh();self.app.processEvents();bar=w.log.verticalScrollBar()
+        self.assertGreater(bar.maximum(),0)
+        bar.setValue(bar.maximum());w.diagnostic_messages.append('new bottom')
+        c.refresh();self.app.processEvents();self.assertEqual(bar.value(),bar.maximum())
+        cursor=w.log.document().find('entry 020');w.log.setTextCursor(cursor)
+        bar.setValue(bar.maximum()//3);before=bar.value();selection=w.log.textCursor().selectedText()
+        w.diagnostic_messages.append('new entry while reading')
+        c.refresh();self.app.processEvents()
+        self.assertEqual(bar.value(),before);self.assertEqual(w.log.textCursor().selectedText(),selection)
+        # A queued GUI refresh with unchanged text must also preserve the viewport.
+        c.refresh();self.app.processEvents();self.assertEqual(bar.value(),before)

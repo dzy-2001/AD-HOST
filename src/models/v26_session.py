@@ -92,7 +92,7 @@ class V26Session:
             if repeat and (settings is None or settings.mode!=1 or 'GAP_LEFT_MS' not in self.status):
                 raise ValueError('重复采集需要自动模式和设备 GAP_LEFT_MS 字段')
             if action=='force' and not can_force(self.status,self.active):raise RuntimeError('本次不是已确认的手动采集，或历史尚未就绪')
-            if action=='query' and command not in ('VER','FST','TST','FREG'):raise ValueError('查询指令不受支持')
+            if action=='query' and command not in ('VER','FST','TST','FREG'):raise ValueError(f'上位机不支持指令 {command!r}，未发送；查询可用 VER / FST / TST / FREG')
             if action in ('finit','clear') and (self.managed or self.status.get('STATUS',0)&(2|4)):
                 raise RuntimeError('请先处理当前采集/记录')
             if action=='start':self._repeat_stopped=False
@@ -103,7 +103,9 @@ class V26Session:
         except UnicodeEncodeError as exc:raise ValueError('指令必须为 ASCII') from exc
         if not 1<=len(raw)<=127 or any(c in raw for c in (10,13,0)):
             raise ValueError('只允许一条指令，正文 1–127 字节，无内嵌换行')
-        name,sep,arg=text.partition(' ')
+        parts=text.strip(' \t').split(None,1)
+        if not parts:raise ValueError('请输入指令')
+        name=parts[0].upper();sep=len(parts)==2;arg=parts[1] if sep else ''
         if name in ('CFG','ACQ'):
             fields=arg.split(',')
             if len(fields) not in (10,11) or any(not x.strip().isascii() or not x.strip().isdigit() for x in fields):
@@ -122,23 +124,26 @@ class V26Session:
     def _add(self,name,count):
         with self._lock:setattr(self,name,getattr(self,name)+count)
 
-    def _request(self,command):
+    def _request(self,command,*,report=False):
         payload=command if isinstance(command,bytes) else command.encode('ascii')+b'\r'
         label=payload.decode('ascii').strip()
-        if label!='TST':self._event('发送 '+label)
+        report=report or label!='TST'
+        if report:self._event('发送 '+label)
         try:result=self.transport.request(payload)
         except CommandRejected:
+            if report:self._event('接收 '+label+'：? (设备拒绝)')
             with self._lock:self.diagnostics[label.split(' ')[0]]='? (设备拒绝)'
             raise
         except UnicodeDecodeError:
             with self._lock:self.diagnostics[label.split(' ')[0]]='完整回复包含非 ASCII 字节'
             raise
         with self._lock:self.diagnostics[label.split(' ')[0]]=result or '*'
+        if report:self._event('接收 '+label+'：'+(result or '*'))
         return result
 
-    def _status(self):
+    def _status(self,*,report=False):
         try:
-            reply=self._request('TST')
+            reply=self._request('TST',report=report)
         except (CommandRejected,UnicodeDecodeError) as exc:
             return self._status_unavailable(str(exc))
         try:status=parse_tst(reply)
@@ -246,7 +251,7 @@ class V26Session:
         elif action=='read':
             if not can_get(self._status()):raise ValueError('记录尚不可读取')
             self._read_record()
-        elif action=='query':self._status() if command=='TST' else self._request(command)
+        elif action=='query':self._status(report=True) if command=='TST' else self._request(command)
         elif action=='finit':
             self._request('FINIT');self.configured=None;self.active=None;self._status()
         elif action=='clear':self._request('CLEAR_EVENTS');self._status()
@@ -324,7 +329,7 @@ class V26Session:
         while any(self.directory.glob(base+'.*')):
             suffix+=1;base=f'{stem}_{suffix}'
         partial=self.directory/(base+'.partial.hex');final=self.directory/(base+'.hex')
-        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.3',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
+        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.4',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
                   sample_rate_hz=record_rate_hz(s),adc_clock_hz=s['RATE'],calibration=dict(CALIBRATION),complete=False,
                   status=s,active_settings=asdict(self.active) if self.active else None,
                   active_configuration_known=self.active is not None,diagnostics=dict(self.diagnostics),
