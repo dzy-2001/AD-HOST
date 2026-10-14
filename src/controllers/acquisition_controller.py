@@ -138,7 +138,7 @@ class AcquisitionController(QObject):
         for w in v.connection_widgets:w.setEnabled(not alive)
         if not self.session:
             text=json.dumps(dict(calibration=CALIBRATION,waveform=[w.diagnostics for w in self.waveforms if not w.closed],messages=v.diagnostic_messages),ensure_ascii=False,indent=2)
-            if text!=self.last_log:v.update_diagnostics(text);self.last_log=text
+            if text!=self.last_log and v.update_diagnostics(text):self.last_log=text
             return
         s=self.session.snapshot();v.state.setText(s['phase'])
         if s['state']=='connecting':
@@ -170,7 +170,7 @@ class AcquisitionController(QObject):
                          transfer={k:s[k] for k in ('expected','received','written','pending','buffer_bytes','completed')},
                          waveform=[w.diagnostics for w in self.waveforms if not w.closed],messages=v.diagnostic_messages)
         text=json.dumps(diagnostics,ensure_ascii=False,indent=2)+'\n\n'+'\n'.join(e['time']+' '+e['message'] for e in self.session.events()[-40:])
-        if text!=self.last_log:v.update_diagnostics(text);self.last_log=text
+        if text!=self.last_log and v.update_diagnostics(text):self.last_log=text
 
     def close(self):
         if self.closing:return

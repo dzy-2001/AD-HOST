@@ -1,7 +1,6 @@
 """Qt widgets and presentation only; commands are handled by controllers."""
 from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QLabel,QLineEdit,
                              QTabWidget,QCheckBox,QProgressBar,QTextEdit,QFileDialog,QScrollArea,QListWidget,QMessageBox)
 from .widgets.controls import button,card,spin,combo
@@ -124,6 +123,7 @@ class MainWindow(QMainWindow):
         self.send_button=button('发送指令','paper-plane','primary');row.addWidget(self.send_button)
         self.send_button.clicked.connect(lambda:self.command_requested.emit(self.command.text()));self.command.returnPressed.connect(lambda:self.command_requested.emit(self.command.text()))
         self.log=QTextEdit();self.log.setReadOnly(True);dia.addWidget(self.log,1)
+        self.log.setToolTip('底部自动更新；向上查看或选中文本时暂停，回到底部并取消选择后继续。')
         self.notice=QLabel('就绪');self.notice.setWordWrap(True);layout.addWidget(self.notice)
         self.len_mode.currentIndexChanged.connect(self.update_length_limit)
         for w in self.config_widgets:
@@ -194,15 +194,14 @@ class MainWindow(QMainWindow):
 
     def update_diagnostics(self,text):
         vertical=self.log.verticalScrollBar();horizontal=self.log.horizontalScrollBar()
-        y=vertical.value();x=horizontal.value();cursor=self.log.textCursor()
-        position=cursor.position();anchor=cursor.anchor()
-        follow=y>=vertical.maximum()-2 and not cursor.hasSelection()
-        self.log.setPlainText(text)
-        end=self.log.document().characterCount()-1
-        restored=self.log.textCursor();restored.setPosition(min(anchor,end))
-        restored.setPosition(min(position,end),QTextCursor.MoveMode.KeepAnchor)
-        self.log.setTextCursor(restored)
-        vertical.setValue(vertical.maximum() if follow else y);horizontal.setValue(x)
+        # Freeze the actual document while it is being read/copied. Keeping only
+        # numeric cursor offsets would select unrelated text when the snapshot
+        # above the events changes. The controller retries the latest snapshot.
+        if self.log.textCursor().hasSelection() or vertical.value()<vertical.maximum()-2:
+            return False
+        x=horizontal.value();self.log.setPlainText(text)
+        vertical.setValue(vertical.maximum());horizontal.setValue(x)
+        return True
 
     def show_error(self,message):
         text=str(message);self.diagnostic_messages.append(text);self.diagnostic_messages=self.diagnostic_messages[-100:]

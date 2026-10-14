@@ -46,9 +46,6 @@ class QtDiagnosticsTests(unittest.TestCase):
                 controller.close();pump(lambda:window.allow_close);board.close()
 
 
-if __name__=='__main__':unittest.main()
-
-
 class QtDiagnosticLogTests(unittest.TestCase):
     def setUp(self):
         self.app,self.window,self.controller=create_application();self.app.setQuitOnLastWindowClosed(False)
@@ -89,8 +86,19 @@ class QtDiagnosticLogTests(unittest.TestCase):
         c.refresh();self.app.processEvents();self.assertEqual(bar.value(),bar.maximum())
         cursor=w.log.document().find('entry 020');w.log.setTextCursor(cursor)
         bar.setValue(bar.maximum()//3);before=bar.value();selection=w.log.textCursor().selectedText()
+        w.diagnostic_messages.insert(0,'earlier content expanded ' * 20)
         w.diagnostic_messages.append('new entry while reading')
         c.refresh();self.app.processEvents()
         self.assertEqual(bar.value(),before);self.assertEqual(w.log.textCursor().selectedText(),selection)
         # A queued GUI refresh with unchanged text must also preserve the viewport.
         c.refresh();self.app.processEvents();self.assertEqual(bar.value(),before)
+        self.assertNotIn('earlier content expanded',w.log.toPlainText())
+        cursor=w.log.textCursor();cursor.clearSelection();w.log.setTextCursor(cursor)
+        c.refresh();self.app.processEvents();self.assertEqual(bar.value(),before)
+        bar.setValue(bar.maximum());c.refresh();self.app.processEvents()
+        self.assertIn('earlier content expanded',w.log.toPlainText())
+        self.assertIn('new entry while reading',w.log.toPlainText())
+        self.assertEqual(bar.value(),bar.maximum())
+
+
+if __name__=='__main__':unittest.main()
