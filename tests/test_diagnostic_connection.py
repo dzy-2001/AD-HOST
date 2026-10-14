@@ -1,6 +1,7 @@
 from pathlib import Path
 import tempfile
 import time
+import threading
 import unittest
 from src.models.core import CaptureConfig
 from src.models.v26_protocol import AcquisitionSettings
@@ -21,10 +22,15 @@ FST = ('ID:ADFC,VER:1000,INIT:0,IERR:4,HCLK:168000000,SDCLK:56000000,'
 
 class DiagnosticBoard(Simulator):
     def __init__(self, response=b'\r\n?'):
+        self.poll_entered=threading.Event();self.poll_release=threading.Event();self.pause_next=False
         self.tst_response=response
         super().__init__(rate_support=True)
 
     def _handle(self, conn, cmd):
+        if cmd=='TST' and self.pause_next:
+            self.pause_next=False;self.commands.append((cmd,time.monotonic()))
+            self.poll_entered.set();self.poll_release.wait(2)
+            return b'\r\n?'
         if cmd=='FST' or cmd=='TST' and self.tst_response is not None:
             self.commands.append((cmd,time.monotonic()))
             return FST.encode()+b'\r\n*' if cmd=='FST' else self.tst_response
@@ -74,6 +80,29 @@ class DiagnosticConnectionTests(unittest.TestCase):
         snap=wait(s,lambda x:bool(x.get('status_error')) or x['state']=='failed')
         self.assertEqual(snap['state'],'connected');self.assertFalse(snap['can_start'])
         self.assertEqual(snap['status'],{});self.assertFalse(snap['repeat'])
+
+    def test_queued_start_does_not_recover_and_arm_after_failed_poll(self):
+        board,s=self.connect(None)
+        board.pause_next=True
+        self.assertTrue(board.poll_entered.wait(2))
+        try:s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1))
+        finally:board.poll_release.set()
+        snap=wait(s,lambda x:not x['busy'])
+        self.assertTrue(snap['status_error']);self.assertEqual(snap['status'],{})
+        self.assertFalse(any(c=='ARM' or c.startswith('CFG ') for c,t in board.commands))
+
+    def test_rejected_tst_with_extra_bytes_disconnects(self):
+        board,s=self.connect(b'\r\n?EXTRA')
+        self.assertTrue(s.wait(2))
+        self.assertEqual(s.snapshot()['state'],'failed')
+        self.assertNotIn('ARM',[c for c,t in board.commands])
+
+    def test_non_ascii_complete_tst_allows_manual_requery(self):
+        board,s=self.connect(b'STATUS:\xff\r\n*')
+        self.assertEqual(s.snapshot()['state'],'connected')
+        self.assertTrue(s.snapshot()['status_error'])
+        board.tst_response=None;s.submit_command('TST')
+        wait(s,lambda x:x['can_start'])
 
     def test_malformed_complete_tst_allows_manual_requery(self):
         board,s=self.connect(b'STATUS:2061\r\n*')

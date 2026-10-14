@@ -129,13 +129,16 @@ class V26Session:
         except CommandRejected:
             with self._lock:self.diagnostics[label.split(' ')[0]]='? (设备拒绝)'
             raise
+        except UnicodeDecodeError:
+            with self._lock:self.diagnostics[label.split(' ')[0]]='完整回复包含非 ASCII 字节'
+            raise
         with self._lock:self.diagnostics[label.split(' ')[0]]=result or '*'
         return result
 
     def _status(self):
         try:
             reply=self._request('TST')
-        except CommandRejected as exc:
+        except (CommandRejected,UnicodeDecodeError) as exc:
             return self._status_unavailable(str(exc))
         try:status=parse_tst(reply)
         except ValueError as exc:return self._status_unavailable(str(exc))
@@ -145,6 +148,8 @@ class V26Session:
         return status
 
     def _status_unavailable(self,reason):
+        if self.transport.buffer:
+            raise ConnectionError('TST 回复后有未归属字节，已断开；请重连核对设备状态')
         # FST is diagnostic context, never a substitute for TST record metadata.
         try:fst=parse_fst(self.diagnostics.get('FST',''))
         except ValueError:fst={}
@@ -209,6 +214,9 @@ class V26Session:
             self._done.set()
 
     def _perform(self,action,settings,repeat,command):
+        # A status poll may have failed after this action was queued.
+        if self.status_error and action not in ('query','finit','stop_repeat'):
+            raise RuntimeError('采集状态已失效，已取消排队操作；请先手动查询 TST')
         self.error=self.status_error
         if action in ('configure','start'):
             self.phase='写入并核对配置';s=self._status()
