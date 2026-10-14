@@ -1,4 +1,4 @@
-# AD-HOST 0.6.0 · Qt6 / MVC
+# AD-HOST 0.6.1 · Qt6 / MVC
 
 完整解压便携包，运行 AD-HOST.exe。窗口右上显示连接状态，顶部设置 IP、端口和保存目录；采集、记录、诊断分别位于三个页签。
 
@@ -6,7 +6,7 @@
 
 ## V28 保存采样率
 
-在“采样窗口”的“保存采样率”输入 1–100 MSPS 的整数，默认 100。点击“设置采样率”发送 RATE 并核对 CFG_RATE_MSPS，只配置下一条记录，不启动采集。也可直接点击“应用配置”或“准备采集”，两者都会提交完整的 11 参数配置，包含当前输入的速率。采集中或自动重复期间速率按钮与配置输入禁用。
+在“采样窗口”的“保存采样率”输入 1–100 MSPS 的整数，默认 100。与其他参数一起点击“应用配置”或“准备采集”，两者都会提交完整的 11 参数配置，包含当前输入的速率，无需单独设置按钮。采集中或自动重复期间配置输入禁用。
 
 输入框是待提交值；旁边的“设备配置 / 当前锁存”是设备回读值。设置失败时请查看状态和诊断，不能把输入值当作设备已生效值。
 
@@ -63,7 +63,7 @@ Model 不依赖 Qt。View 不操作 socket 或读取数据文件。Controller �
 
 ## ComboBox 外观
 
-0.6.0 取消了强制 Fusion 基础风格，使用与原 ENET 项目相同的系统默认 Qt 风格，并保持 styles.py 原文不变。Windows 对照测试中，相同 QSS 在默认 windows11 风格下使用 QComboBoxDelegate、行高 28；Fusion 下使用 QComboMenuDelegate、行高 25，并出现矩形焦点框。窗口级/应用级加载 QSS 的对照结果相同，故保留现有应用级样式加载。不同操作系统的原生边框和阴影仍可能不同。
+0.5.3 取消了强制 Fusion 基础风格，使用与原 ENET 项目相同的系统默认 Qt 风格，并保持 styles.py 原文不变。Windows 对照测试中，相同 QSS 在默认 windows11 风格下使用 QComboBoxDelegate、行高 28；Fusion 下使用 QComboMenuDelegate、行高 25，并出现矩形焦点框。窗口级/应用级加载 QSS 的对照结果相同，故保留现有应用级样式加载。不同操作系统的原生边框和阴影仍可能不同。
 
 可运行 `python tools/qt_combo_probe.py` 生成基础风格与 QSS 加载范围的对照截图；该工具只用于诊断，不会更改程序配置。
 
@@ -76,3 +76,11 @@ Model 不依赖 Qt。View 不操作 socket 或读取数据文件。Controller �
 测试：`python -m unittest discover -s tests -v`；Qt 界面测试：`python tools/qt_smoke.py`。可设置 `AD_HOST_SCREENSHOTS` 指定截图目录。模拟器仍可使用 `python tools/v26_simulator.py`。
 
 资料：[QtAwesome 使用](https://qtawesome.readthedocs.io/en/stable/usage.html)、[Matplotlib Qt 嵌入示例](https://matplotlib.org/stable/gallery/user_interfaces/embedding_in_qt_sgskip.html)。软件测试与模拟器不能代替实际板卡联调。
+
+## TST 被拒绝时的诊断连接
+
+若 TCP、VER、FST 正常但 TST 返回 `?` 或完整回包缺少必需字段，软件保留连接并进入“仅诊断”状态。此时不假定采样率为 100 MSPS，也不使用旧 TST 或 FST 数据启动采集。暂停自动轮询和重复采集；仍可查询 VER/FST/FREG/TST，FINIT 仅在用户主动发送时执行。断线、超时或不明确的收包边界仍结束连接，避免错配后续回复。
+
+日志示例 `VER=V1.0.15 (V28)`，FST `VER:1000,INIT:0,IERR:4` 表示 STM32 可通信，但 FPGA 初始化报告版本不匹配。V28 对接说明期望 FPGA VERSION `0201`。应核对 FPGA 实际烧录程序及 FMC 版本寄存器读值；不能仅凭这份日志区分未烧录配套 FPGA 与寄存器读取异常。上位机的版本严格检查保持停用，不能绕过设备自身拒绝命令的问题。
+
+设备恢复后点击诊断页 TST，取得有效状态即恢复采集操作。不会自动重启上一轮采集；请重新准备采集。

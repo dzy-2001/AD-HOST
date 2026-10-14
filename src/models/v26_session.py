@@ -11,8 +11,12 @@ import time
 import uuid
 
 from .v26_protocol import (AcquisitionSettings,ERROR_MASK,can_arm,can_get,can_force,
-                           can_release,parse_tst,validate_record,record_rate_hz)
+                           can_release,parse_fst,parse_tst,validate_record,record_rate_hz)
 from .v26_transport import Transport,RecordWriter,CommandRejected,Stopped
+
+
+class StatusUnavailable(ValueError):
+    """A complete TST reply was rejected or cannot describe acquisition state."""
 
 
 class V26Session:
@@ -23,7 +27,7 @@ class V26Session:
         self._lock=threading.RLock();self._halt=threading.Event();self._done=threading.Event()
         self._actions=queue.Queue(maxsize=1);self._pending=False;self._events=deque(maxlen=300)
         self._sock=None;self.transport=None;self._worker=None
-        self.state='new';self.phase='未连接';self.error='';self.status={};self.diagnostics={}
+        self.state='new';self.phase='未连接';self.error='';self.status={};self.diagnostics={};self.status_error=''
         self.configured=None;self.active=None;self.managed=False;self.repeating=False;self._repeat_stopped=False
         self.receiving=False;self.completed=0;self.last_path='';self.rx=0;self.tx=0
         self.expected=0;self.received=0;self.written=0;self.index=0;self.capture_started=0
@@ -37,10 +41,10 @@ class V26Session:
 
     def snapshot(self):
         with self._lock:
-            available=self.state=='connected' and not self._pending and not self.receiving
+            available=self.state=='connected' and not self._pending and not self.receiving and not self.status_error
             s=dict(self.status)
             return dict(state=self.state,phase=self.phase,error=self.error,status=s,diagnostics=dict(self.diagnostics),
-                        active_settings=asdict(self.active) if self.active else None,
+                        status_error=self.status_error,active_settings=asdict(self.active) if self.active else None,
                         configured=asdict(self.configured) if self.configured else None,
                         repeat=self.repeating,receiving=self.receiving,busy=self._pending,
                         can_start=available and not self.managed and not self.repeating and can_arm(s),
@@ -72,6 +76,8 @@ class V26Session:
             raise ValueError('不支持的操作')
         with self._lock:
             if self.state!='connected':raise RuntimeError('请先连接设备并读取采集状态')
+            if self.status_error and action not in ('query','finit','stop_repeat'):
+                raise RuntimeError('采集状态不可用，请先在设备诊断中查询 TST；'+self.status_error)
             if action=='stop_repeat':self._repeat_stopped=True;self.repeating=False;self._event('已停止后续记录，当前记录继续完成');return
             if action=='cancel' and self.receiving:
                 self.repeating=False;self.stop();return
@@ -119,14 +125,40 @@ class V26Session:
         payload=command if isinstance(command,bytes) else command.encode('ascii')+b'\r'
         label=payload.decode('ascii').strip()
         if label!='TST':self._event('发送 '+label)
-        result=self.transport.request(payload)
+        try:result=self.transport.request(payload)
+        except CommandRejected:
+            with self._lock:self.diagnostics[label.split(' ')[0]]='? (设备拒绝)'
+            raise
         with self._lock:self.diagnostics[label.split(' ')[0]]=result or '*'
         return result
 
     def _status(self):
-        status=parse_tst(self._request('TST'))
-        with self._lock:self.status=status
+        try:
+            reply=self._request('TST')
+        except CommandRejected as exc:
+            return self._status_unavailable(str(exc))
+        try:status=parse_tst(reply)
+        except ValueError as exc:return self._status_unavailable(str(exc))
+        with self._lock:
+            if self.error==self.status_error:self.error=''
+            self.status=status;self.status_error=''
         return status
+
+    def _status_unavailable(self,reason):
+        # FST is diagnostic context, never a substitute for TST record metadata.
+        try:fst=parse_fst(self.diagnostics.get('FST',''))
+        except ValueError:fst={}
+        detail=''
+        if fst.get('INIT')=='0':
+            ierr=fst.get('IERR','未知');version=fst.get('VER','未知')
+            detail=f'；设备报告 FPGA 初始化未成功（INIT=0，IERR={ierr}，FPGA VER={version}）'
+            if ierr=='4':detail+='；初始化错误码指向 FPGA 版本不匹配，请核对配套 FPGA 程序及 FMC 版本寄存器回读'
+        message=reason+detail+'；TCP 连接保留，仅可诊断，取得有效 TST 后恢复采集'
+        with self._lock:
+            self.status={};self.status_error=message;self.error=message
+            self.configured=None;self.active=None;self.managed=False;self.repeating=False
+        self._event(message)
+        raise StatusUnavailable(message)
 
     def _run(self):
         try:
@@ -140,24 +172,29 @@ class V26Session:
                 except CommandRejected:
                     with self._lock:self.diagnostics[command]='? (设备未提供此诊断)'
                     self._event(command+' 查询未被接受，继续读取采集状态')
-            self._status()
-            self.state='connected';self._event('已连接并读取采集状态；版本严格检查已停用')
+            try:self._status()
+            except StatusUnavailable:pass
+            self.state='connected';self._event('TCP 已连接；'+('仅诊断，采集状态不可用' if self.status_error else '已读取采集状态；版本严格检查已停用'))
             while not self._halt.is_set():
-                try:item=self._actions.get(timeout=max(.001,min(.05,self._next_poll-time.monotonic())))
+                try:item=self._actions.get(timeout=.05 if self.status_error else max(.001,min(.05,self._next_poll-time.monotonic())))
                 except queue.Empty:item=None
                 if item is not None:
                     try:self._perform(*item)
                     except (CommandRejected,ValueError,RuntimeError) as exc:
                         if isinstance(exc,Stopped):raise
                         self.error=str(exc);self.managed=False;self.repeating=False;self._event(exc)
-                        self._status()
+                        if not self.status_error:
+                            try:self._status()
+                            except StatusUnavailable:pass
                     finally:
                         with self._lock:self._pending=False
-                elif time.monotonic()>=self._next_poll:
-                    self._status()
-                    try:self._advance()
-                    except (CommandRejected,ValueError) as exc:
-                        self.error=str(exc);self.managed=False;self.repeating=False;self._event(exc)
+                elif not self.status_error and time.monotonic()>=self._next_poll:
+                    try:self._status()
+                    except StatusUnavailable:pass
+                    else:
+                        try:self._advance()
+                        except (CommandRejected,ValueError) as exc:
+                            self.error=str(exc);self.managed=False;self.repeating=False;self._event(exc)
                     self._next_poll=time.monotonic()+self.poll_interval
                 self._describe()
         except Stopped as exc:
@@ -172,7 +209,7 @@ class V26Session:
             self._done.set()
 
     def _perform(self,action,settings,repeat,command):
-        self.error=''
+        self.error=self.status_error
         if action in ('configure','start'):
             self.phase='写入并核对配置';s=self._status()
             if not can_arm(s):raise ValueError('设备有活动或未释放记录')
@@ -256,6 +293,8 @@ class V26Session:
 
     def _describe(self):
         if self.receiving:return
+        if self.status_error:
+            self.phase='已连接（仅诊断，采集状态不可用）';return
         s=self.status;status=s.get('STATUS',0)
         if status&ERROR_MASK:self.phase='设备异常，请处理已有记录/查看诊断'
         elif status&4:self.phase='记录完成，可读取或丢弃'
@@ -274,7 +313,7 @@ class V26Session:
         self.receiving=True;self.phase='读取波形，已暂停状态查询'
         base=f'capture_{self.index:04d}_{s["SAMPLES"]}pairs_{uuid.uuid4().hex[:6]}'
         partial=self.directory/(base+'.partial.hex');final=self.directory/(base+'.hex')
-        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.0',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
+        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.1',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
                   sample_rate_hz=record_rate_hz(s),adc_clock_hz=s['RATE'],complete=False,
                   status=s,active_settings=asdict(self.active) if self.active else None,
                   active_configuration_known=self.active is not None,diagnostics=dict(self.diagnostics),

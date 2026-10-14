@@ -38,9 +38,10 @@ def run(v28=False):
             window.connect_button.click();original=controller.session;controller.connect_device();assert controller.session is original
             pump(app,lambda:controller.session.snapshot()['can_start']);controller.refresh()
             if v28:
-                assert window.actions['rate'].isEnabled();window.actions['rate'].click()
+                window.actions['configure'].click()
                 pump(app,lambda:not controller.session.snapshot()['busy'] and controller.session.snapshot()['status'].get('CFG_RATE_MSPS')==5)
-                assert 'RATE 5' in [c for c,t in board.commands]
+                assert 'CFG 0,2,30,0,2500,0,1500,4,3,1000,5' in [c for c,t in board.commands]
+                assert not any(c.startswith('RATE ') for c,t in board.commands)
                 assert 'ARM' not in [c for c,t in board.commands]
                 controller.refresh()
             window.actions['start'].click();pump(app,lambda:controller.session.snapshot()['can_force']);controller.refresh()

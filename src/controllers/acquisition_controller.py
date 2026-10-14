@@ -39,7 +39,7 @@ class AcquisitionController(QObject):
     def action(self,name):
         try:
             if self.session is None or self.closing:raise ValueError('请先连接设备')
-            config=self.view.rate.value() if name=='rate' else AcquisitionSettings(**self.view.values()) if name in ('configure','start') else None
+            config=AcquisitionSettings(**self.view.values()) if name in ('configure','start') else None
             self.session.submit(name,config,repeat=self.view.repeat.isChecked() if name=='start' else False)
             self.refresh()
         except (ValueError,RuntimeError) as exc:self.view.show_error(exc)
@@ -74,10 +74,16 @@ class AcquisitionController(QObject):
         for w in v.connection_widgets:w.setEnabled(not alive)
         if not self.session:return
         s=self.session.snapshot();v.state.setText(s['phase'])
-        if 'CFG_RATE_MSPS' in s['status']:
+        if s['state']=='connecting':
+            v.rate_status.setText('正在读取设备状态，尚未确认保存采样率')
+        elif s.get('status_error'):
+            v.rate_status.setText('采集状态读取失败，保存采样率未知；请查看设备诊断')
+        elif s['state']!='connected':
+            v.rate_status.setText('已断开；保存采样率尚未确认')
+        elif 'CFG_RATE_MSPS' in s['status']:
             v.rate_status.setText(f"设备配置 {s['status']['CFG_RATE_MSPS']} MSPS · 当前锁存 {s['status'].get('ACTIVE_RATE_MSPS','—')} MSPS · ADC 100 MHz")
-        else:v.rate_status.setText('设备未提供速率字段；保存采样率使用 100 MSPS')
-        for action,key in (('rate','can_set_rate'),('configure','can_start'),('start','can_start'),('force','can_force'),('cancel','can_cancel'),('read','can_read'),('release','can_release')):
+        else:v.rate_status.setText('设备状态未返回采样率信息；按旧协议默认 100 MSPS（非测量值）')
+        for action,key in (('configure','can_start'),('start','can_start'),('force','can_force'),('cancel','can_cancel'),('read','can_read'),('release','can_release')):
             v.actions[action].setEnabled(bool(s[key]))
         v.actions['stop_repeat'].setEnabled(s['repeat'])
         for w in v.config_widgets:w.setEnabled(not alive or bool(s['can_start']))
@@ -91,6 +97,9 @@ class AcquisitionController(QObject):
         st=s['status'];v.trigger.setText(f"触发原因：{reason_text(st.get('REASON',0))} · 前触发位置 {st.get('ACTIVE_PRE','—')} · 间隔剩余 {st.get('GAP_LEFT_MS','未知')} ms")
         if s['last_path']:v.path.setText(s['last_path']);v.latest_button.setEnabled(True)
         if s['error'] and s['error']!=self.last_error:v.show_error(s['error']);self.last_error=s['error']
+        elif not s['error'] and self.last_error:
+            self.last_error='';v.notice.setText('设备状态已恢复，可按当前状态操作。');v.notice.setProperty('cssClass','')
+            v.notice.style().unpolish(v.notice);v.notice.style().polish(v.notice)
         text=json.dumps(s['diagnostics'],ensure_ascii=False,indent=2)+'\n\n'+'\n'.join(e['time']+' '+e['message'] for e in self.session.events()[-40:])
         if text!=self.last_log:v.log.setPlainText(text);self.last_log=text
 

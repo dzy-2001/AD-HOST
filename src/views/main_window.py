@@ -18,7 +18,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__();self.allow_close=False
-        self.setWindowTitle('AD-HOST 0.6.0 · 采集与波形');self.setWindowIcon(icon('wave-square'))
+        self.setWindowTitle('AD-HOST 0.6.1 · 采集与波形');self.setWindowIcon(icon('wave-square'))
         self.resize(1180,870);self.setMinimumSize(950,680)
         root=QWidget();self.setCentralWidget(root);layout=QVBoxLayout(root);layout.setContentsMargins(18,14,18,12)
         title=QLabel('AD-HOST  /  双通道采集');title.setProperty('cssClass','title');layout.addWidget(title)
@@ -58,8 +58,8 @@ class MainWindow(QMainWindow):
         self.rate=spin(1,100,100,' MSPS');self.rate.setMinimumWidth(140);self.rate.setMaximumWidth(180)
         self.rate.setAccessibleName('保存采样率');self.rate.setToolTip('1–100 MSPS / 通道；ADC 和触发检测保持 100 MHz')
         label=QLabel('保存采样率');label.setBuddy(self.rate);label.setProperty('cssClass','field-label')
-        row.addWidget(label);row.addWidget(self.rate);row.addWidget(self.action_button('rate','设置采样率','check'))
-        self.rate_status=QLabel('ADC / 触发检测固定 100 MHz');self.rate_status.setWordWrap(True)
+        row.addWidget(label);row.addWidget(self.rate)
+        self.rate_status=QLabel('未连接；采样率随完整配置提交 · ADC / 触发检测固定 100 MHz');self.rate_status.setWordWrap(True)
         self.rate_status.setProperty('cssClass','field-hint');row.addWidget(self.rate_status,1)
         self.config_widgets.extend([self.len_mode,self.length,self.pre,self.rate])
         self.estimate=QLabel();self.estimate.setWordWrap(True);self.estimate.setProperty('cssClass','summary');box.addWidget(self.estimate)
