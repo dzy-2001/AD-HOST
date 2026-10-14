@@ -1,6 +1,6 @@
 """Qt widgets and presentation only; commands are handled by controllers."""
 from pathlib import Path
-from PyQt6.QtCore import pyqtSignal,Qt
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QLabel,QLineEdit,
                              QTabWidget,QCheckBox,QProgressBar,QTextEdit,QFileDialog,QScrollArea)
 from .widgets.controls import button,card,spin,combo
@@ -35,7 +35,7 @@ class MainWindow(QMainWindow):
         self.browse_button.clicked.connect(self.choose_directory)
         self.connect_button.clicked.connect(self.connect_requested.emit);self.disconnect_button.clicked.connect(self.disconnect_requested.emit)
         self.tabs=QTabWidget();layout.addWidget(self.tabs,1)
-        acquire,acq=self.page('采集与触发','sliders-h');records,rec=self.page('记录与波形','chart-line');diag,dia=self.page('设备诊断','stethoscope')
+        acquire,acq=self.page('采集与触发','sliders-h',with_footer=True);records,rec=self.page('记录与波形','chart-line');diag,dia=self.page('设备诊断','stethoscope')
         self.connection_widgets=[self.host,self.port,self.output,self.browse_button]
         self.config_widgets=[];self.actions={};self.query_buttons=[]
         widget,box=card('1  采样窗口');acq.addWidget(widget)
@@ -83,7 +83,7 @@ class MainWindow(QMainWindow):
         row=QHBoxLayout();acq.addLayout(row);self.repeat=QCheckBox('重复自动记录');self.gap=spin(0,600000,1000,' ms')
         row.addWidget(self.repeat);row.addWidget(QLabel('记录间隔'));row.addWidget(self.gap);row.addStretch()
         self.config_widgets.extend([self.repeat,self.gap])
-        row=QHBoxLayout();acq.addLayout(row)
+        row=QHBoxLayout();self.acquisition_footer.addLayout(row)
         for action,text,glyph,css in [('configure','应用配置','check',None),('start','准备采集','play','success'),('force','手动触发','bolt','primary'),('cancel','取消当前采集','stop','danger'),('stop_repeat','停止后续记录','pause','warning')]:
             b=self.action_button(action,text,glyph,css);row.addWidget(b)
         self.trigger=QLabel('尚未触发');acq.addWidget(self.trigger)
@@ -120,10 +120,16 @@ class MainWindow(QMainWindow):
         self.update_setting_hints();self.update_length_limit(0)
         self.set_idle()
 
-    def page(self,title,glyph):
+    def page(self,title,glyph,with_footer=False):
         content=QWidget();layout=QVBoxLayout(content);layout.setContentsMargins(14,14,14,14);layout.setSpacing(12)
         scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setFrameShape(QScrollArea.Shape.NoFrame);scroll.setWidget(content)
-        self.tabs.addTab(scroll,icon(glyph),title);return content,layout
+        if with_footer:
+            page=QWidget();outer=QVBoxLayout(page);outer.setContentsMargins(0,0,0,0);outer.setSpacing(0)
+            outer.addWidget(scroll,1)
+            footer=QWidget();self.acquisition_footer=QVBoxLayout(footer);self.acquisition_footer.setContentsMargins(14,8,14,10)
+            outer.addWidget(footer);self.tabs.addTab(page,icon(glyph),title)
+        else:self.tabs.addTab(scroll,icon(glyph),title)
+        return content,layout
 
     def action_button(self,action,text,glyph,css=None):
         b=button(text,glyph,css);self.actions[action]=b;b.clicked.connect(lambda:self.action_requested.emit(action));return b

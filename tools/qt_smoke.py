@@ -58,6 +58,10 @@ def run():
             if screenshots:
                 output=Path(screenshots);output.mkdir(parents=True,exist_ok=True);app.processEvents();wave.view.canvas.draw()
                 window.grab().save(str(output/'main.png'));wave.view.grab().save(str(output/'waveform.png'))
+                window.resize(950,680);app.processEvents()
+                start_button=window.actions['start']
+                assert window.centralWidget().rect().contains(start_button.mapTo(window.centralWidget(),start_button.rect().center()))
+                window.grab().save(str(output/'main-small.png'))
             wave.overview();pump(app,lambda:len(wave.current_view.indices)>100)
             wave.close();pump(app,lambda:wave.finished);assert wave.recording is None
             controller.open_plot();reopened=controller.waveforms[-1];assert reopened is not wave
