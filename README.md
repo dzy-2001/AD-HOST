@@ -1,4 +1,4 @@
-# AD-HOST 0.6.4 · Qt6 / MVC
+# AD-HOST 0.6.5 · Qt6 / MVC
 
 PyQt6 + QtAwesome 双通道触发采集上位机，采用统一 Nord Light 样式与 MVC 目录。波形窗口支持拖动、缩放、原始点光标、双光标测量和图片导出。支持采样时间或点数、前后触发比例、手动触发、电压/电流阈值比较、自动重复记录、精确 HEX 保存及触发相对时间波形。
 
@@ -37,3 +37,5 @@ Windows/Linux CI 验证 Qt6 界面及 V28 5 MSPS 采集、文件重开和光标�
 0.6.3：按探头倍率显示实际电压、电流；触发阈值换算加亮。操作页提示精简，详细状态、换算参数和波形元数据集中到诊断页。
 
 0.6.4：诊断指令支持大小写及首尾空格；明确记录指令回包并区分主机输入错误与设备拒绝。修复旧提示残留和日志刷新跳回顶部。
+
+0.6.5：assets/logo.ico 统一窗口、任务栏及 EXE 图标；assets/splash.png 用于启动画面。使用 `python -m PyInstaller --noconfirm --clean build_app.spec` 生成单文件 EXE。

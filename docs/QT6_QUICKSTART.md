@@ -1,4 +1,4 @@
-# AD-HOST 0.6.4 · Qt6 / MVC
+# AD-HOST 0.6.5 · Qt6 / MVC
 
 完整解压便携包，运行 AD-HOST.exe。窗口右上显示连接状态，顶部设置 IP、端口和保存目录；采集、记录、诊断分别位于三个页签。
 
@@ -110,3 +110,18 @@ Model 不依赖 Qt。View 不操作 socket 或读取数据文件。Controller �
 输入 VER、FST、TST、FREG 可查询设备，支持大小写及首尾空格；按钮与输入框共用同一串行处理。输入框不必手动填写回车，也不接受多条指令。发送成功后清除先前的输入错误提示；主机未发送与设备返回 ? 会明确区分。
 
 日志记录手动查询的“发送 / 接收”及实际回包。后台自动 TST 仅更新状态快照，不重复刷入事件列表。停在日志底部时跟随最新内容；向上查看历史或选中文本时暂停替换日志，保留正在阅读的内容；回到底部并取消选择后显示最新内容。
+
+## 图标、启动画面和单文件打包（0.6.5）
+
+项目根目录 assets/logo.ico 用于应用、主窗口、波形窗口及 EXE 图标，Windows 使用固定应用标识 AD-HOST.Desktop。assets/splash.png 用于启动画面，按比例缩放到最多 800×300；源码启动时使用 Qt 启动画面，单文件 EXE 在解包阶段即显示该图片，主窗口就绪后关闭，不额外等待。
+
+在 Windows 的项目根目录执行：
+
+```powershell
+python -m pip install -r requirements.txt pyinstaller==6.16.0
+python -m PyInstaller --noconfirm --clean build_app.spec
+```
+
+输出 dist/AD-HOST.exe，可单独分发。资源已经嵌入 EXE，不需要在旁边放置 assets 或 _internal 文件夹。源码运行仍需保留 assets。要更换图标或启动图，替换上述同名文件后重新打包。spec 已设置单文件、无控制台、QtAwesome 资源与 logo；使用 spec 时不再追加 --onefile 或 --icon。打包需要包含 Tcl/Tk 的标准 Windows Python（用于启动图），运行电脑无需安装 Python。
+
+build_app.spec 通过自身位置定位项目，运行时资源通过源码目录或打包解压目录定位，不依赖启动时的工作目录。Windows 如果缓存了旧 EXE 图标，可取消原固定项后重新固定新程序。

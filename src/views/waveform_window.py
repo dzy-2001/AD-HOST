@@ -6,6 +6,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg,NavigationToolba
 from .widgets.controls import button,spin,combo
 from .widgets.styles import NORD6,NORD4,NORD10,NORD12,NORD11
 from .widgets.theme import icon
+from .widgets.branding import application_icon
 from .widgets.cursor_readout import CursorReadout
 
 
@@ -14,7 +15,7 @@ class WaveformWindow(QMainWindow):
 
     def __init__(self,parent=None):
         super().__init__(parent,Qt.WindowType.Window);self.allow_close=False
-        self.setWindowTitle('波形查看 · AD-HOST');self.setWindowIcon(icon('chart-line'));self.resize(1220,860);self.setMinimumSize(950,680)
+        self.setWindowTitle('波形查看 · AD-HOST');self.setWindowIcon(application_icon());self.resize(1220,860);self.setMinimumSize(950,680)
         content=QWidget();self.setCentralWidget(content);layout=QVBoxLayout(content);layout.setContentsMargins(16,12,16,12)
         row=QHBoxLayout();layout.addLayout(row);self.path=QLineEdit();self.path.setReadOnly(True);row.addWidget(self.path,1)
         self.choose_button=button('选择 HEX','folder-open','primary');self.cancel_button=button('取消解析','times','danger')

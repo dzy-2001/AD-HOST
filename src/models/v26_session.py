@@ -329,7 +329,7 @@ class V26Session:
         while any(self.directory.glob(base+'.*')):
             suffix+=1;base=f'{stem}_{suffix}'
         partial=self.directory/(base+'.partial.hex');final=self.directory/(base+'.hex')
-        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.4',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
+        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.5',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
                   sample_rate_hz=record_rate_hz(s),adc_clock_hz=s['RATE'],calibration=dict(CALIBRATION),complete=False,
                   status=s,active_settings=asdict(self.active) if self.active else None,
                   active_configuration_known=self.active is not None,diagnostics=dict(self.diagnostics),

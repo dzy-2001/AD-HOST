@@ -4,5 +4,6 @@ __pycache__/
 build/
 dist/
 *.spec
+!build_app.spec
 captures/
 *.bin

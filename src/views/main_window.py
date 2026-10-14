@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QGridLa
                              QTabWidget,QCheckBox,QProgressBar,QTextEdit,QFileDialog,QScrollArea,QListWidget,QMessageBox)
 from .widgets.controls import button,card,spin,combo
 from .widgets.theme import icon
+from .widgets.branding import application_icon
 from ..models.calibration import voltage_from_adc,current_from_adc
 
 
@@ -20,7 +21,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__();self.allow_close=False;self.diagnostic_messages=[]
-        self.setWindowTitle('AD-HOST 0.6.4 · 采集与波形');self.setWindowIcon(icon('wave-square'))
+        self.setWindowTitle('AD-HOST 0.6.5 · 采集与波形');self.setWindowIcon(application_icon())
         self.resize(1180,870);self.setMinimumSize(950,680)
         root=QWidget();self.setCentralWidget(root);layout=QVBoxLayout(root);layout.setContentsMargins(18,14,18,12)
         title=QLabel('AD-HOST  /  双通道采集');title.setProperty('cssClass','title');layout.addWidget(title)
