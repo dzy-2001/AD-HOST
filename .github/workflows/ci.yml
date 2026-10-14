@@ -22,14 +22,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libopengl0 libxkbcommon0
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon0 fonts-noto-cjk
       - name: Install plotting dependencies
         run: python -m pip install -r requirements.txt
       - name: Test TCP capture and command encoding
         run: python -m unittest discover -s tests -v
       - name: Qt6 acquisition, interaction and lifecycle smoke test
         env:
-          QT_QPA_PLATFORM: offscreen
           AD_HOST_SCREENSHOTS: screenshots
         run: python tools/qt_smoke.py
       - uses: actions/upload-artifact@v4

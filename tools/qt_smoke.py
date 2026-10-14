@@ -1,6 +1,7 @@
 """Real Qt workflow and waveform interactions; offscreen is supported."""
 import os
-os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+import sys
+os.environ.setdefault('QT_QPA_PLATFORM','windows' if sys.platform=='win32' else 'offscreen')
 import math
 import sys
 import tempfile
