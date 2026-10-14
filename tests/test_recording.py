@@ -22,17 +22,17 @@ class RecordingTests(unittest.TestCase):
         return self.api.load_recording(self.path, **kwargs)
 
     def test_ascii_decoding_big_endian_and_channel_order(self):
-        # 0000/0001, 0800/0ABC, 0FFF/FFFF; catches byte swap or channel swap.
-        recording = self.load(b'0000000108000ABC0FFFFFFF')
-        np.testing.assert_array_equal(recording.samples, [[0, 1], [2048, 2748], [4095, 65535]])
+        # 0000/0001, 0800/0ABC, 0FFF/0FFF; catches byte swap or channel swap.
+        recording = self.load(b'0000000108000ABC0FFF0FFF')
+        np.testing.assert_array_equal(recording.samples, [[0, 1], [2048, 2748], [4095, 4095]])
         self.assertEqual(recording.samples.dtype, np.dtype('uint16'))
         self.assertFalse(recording.samples.flags.writeable)
 
     def test_voltage_formula_and_100mhz_time_axis(self):
-        recording = self.load(b'0000000108000ABC0FFFFFFF')
+        recording = self.load(b'0000000108000ABC0FFF0FFF')
         view = self.api.make_view(recording)
-        np.testing.assert_allclose(view.voltage, [-6, 0, 5.9970703125])
-        np.testing.assert_array_equal(view.current, [1, 2748, 65535])
+        np.testing.assert_allclose(view.voltage, [-30000, 0, 29985.3515625])
+        np.testing.assert_array_equal(view.current, [-239.8828125, 82.03125, 239.8828125])
         np.testing.assert_allclose(view.time_ms, [0, 0.00001, 0.00002], rtol=1e-12)
 
     def test_whitespace_lowercase_bom_and_chunk_boundary(self):
@@ -69,22 +69,22 @@ class RecordingTests(unittest.TestCase):
     def test_overview_keeps_single_sample_peaks_in_both_channels(self):
         samples = np.full((10000, 2), 2048, dtype=np.uint16)
         samples[1234, 0] = 4095
-        samples[5678, 1] = 65535
+        samples[5678, 1] = 4095
         samples[3011, 0] = 0
         recording = self.api.Recording(self.path, samples)
         view = self.api.make_view(recording, max_points=100)
         self.assertLessEqual(len(view.indices), 100)
         self.assertTrue({0, 1234, 3011, 5678, 9999}.issubset(set(view.indices)))
         self.assertTrue(np.all(np.diff(view.indices) > 0))
-        self.assertEqual(view.voltage.max(), 5.9970703125)
-        self.assertEqual(view.current.max(), 65535)
+        self.assertEqual(view.voltage.max(), 29985.3515625)
+        self.assertEqual(view.current.max(), 239.8828125)
 
     def test_zoom_uses_original_samples_and_absolute_time(self):
         samples = np.column_stack((np.arange(100, dtype=np.uint16), np.arange(100, dtype=np.uint16) + 100))
         recording = self.api.Recording(self.path, samples)
         view = self.api.make_view(recording, start=50, stop=60, max_points=100)
         np.testing.assert_array_equal(view.indices, np.arange(50, 60))
-        np.testing.assert_array_equal(view.current, np.arange(150, 160))
+        np.testing.assert_array_equal(view.current, np.arange(150, 160)*.1171875-240)
         np.testing.assert_allclose(view.time_ms[[0, -1]], [.0005, .00059])
 
     def test_invalid_view_range_and_sample_rate_are_rejected(self):

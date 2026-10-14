@@ -13,8 +13,9 @@ class WaveformModelTests(unittest.TestCase):
         point=sample_at(self.recording,.000009)
         self.assertEqual(point.index,2)
         self.assertAlmostEqual(point.time_ms,.00001)
-        self.assertAlmostEqual(point.voltage,4095*12/4096-6)
-        self.assertEqual(point.current,30)
+        self.assertAlmostEqual(point.voltage,29985.3515625)
+        self.assertEqual(point.current,-236.484375)
+        self.assertEqual(point.current_raw,30)
         self.assertEqual(point.voltage_raw,4095)
 
     def test_cursor_clamps_and_range_covers_endpoints(self):
@@ -32,7 +33,8 @@ class WaveformModelTests(unittest.TestCase):
         delta=measurement(a,b)
         self.assertAlmostEqual(delta['time_ms'],.00002)
         self.assertEqual(delta['samples'],2)
-        self.assertEqual(delta['current'],20)
+        self.assertEqual(delta['current'],2.34375)
+        self.assertEqual(delta['current_raw'],20)
         self.assertEqual(delta['voltage_raw'],4095)
         self.assertEqual(measurement(b,a)['voltage_raw'],-4095)
 

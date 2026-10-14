@@ -31,10 +31,10 @@ class TriggerRecordingTests(unittest.TestCase):
         self.meta['status']['SAMPLES']=11;self.save_meta()
         with self.assertRaises(ValueError):load_recording(self.path)
 
-    def test_v26_current_is_twelve_bits_but_legacy_file_remains_supported(self):
+    def test_current_above_twelve_bits_is_rejected_with_or_without_metadata(self):
         self.path.write_bytes(b'0800FFFF'*10);self.save_meta()
         with self.assertRaises(ValueError):load_recording(self.path)
         Path(str(self.path)+'.json').unlink()
-        self.assertEqual(make_view(load_recording(self.path)).current.max(),65535)
+        with self.assertRaises(ValueError):load_recording(self.path)
 
 if __name__=='__main__':unittest.main()

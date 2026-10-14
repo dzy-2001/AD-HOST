@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QGridLa
                              QTabWidget,QCheckBox,QProgressBar,QTextEdit,QFileDialog,QScrollArea,QListWidget,QMessageBox)
 from .widgets.controls import button,card,spin,combo
 from .widgets.theme import icon
+from ..models.calibration import voltage_from_adc,current_from_adc
 
 
 class MainWindow(QMainWindow):
@@ -18,8 +19,8 @@ class MainWindow(QMainWindow):
     settings_changed=pyqtSignal()
 
     def __init__(self):
-        super().__init__();self.allow_close=False
-        self.setWindowTitle('AD-HOST 0.6.2 · 采集与波形');self.setWindowIcon(icon('wave-square'))
+        super().__init__();self.allow_close=False;self.diagnostic_messages=[]
+        self.setWindowTitle('AD-HOST 0.6.3 · 采集与波形');self.setWindowIcon(icon('wave-square'))
         self.resize(1180,870);self.setMinimumSize(950,680)
         root=QWidget();self.setCentralWidget(root);layout=QVBoxLayout(root);layout.setContentsMargins(18,14,18,12)
         title=QLabel('AD-HOST  /  双通道采集');title.setProperty('cssClass','title');layout.addWidget(title)
@@ -48,7 +49,7 @@ class MainWindow(QMainWindow):
         self.length_hint=QLabel('范围 1–200 ms')
         self.pre_hint=QLabel()
         for col,label,field,hint in (
-            (0,QLabel('设置方式'),self.len_mode,QLabel('点数与时长按保存采样率换算')),
+            (0,QLabel('设置方式'),self.len_mode,QLabel('每通道')),
             (1,self.length_label,self.length,self.length_hint),
             (2,QLabel('触发前占比'),self.pre,self.pre_hint)):
             label.setProperty('cssClass','field-label');label.setBuddy(field)
@@ -60,7 +61,7 @@ class MainWindow(QMainWindow):
         self.rate.setAccessibleName('保存采样率');self.rate.setToolTip('1–100 MSPS / 通道；ADC 和触发检测保持 100 MHz')
         label=QLabel('保存采样率');label.setBuddy(self.rate);label.setProperty('cssClass','field-label')
         row.addWidget(label);row.addWidget(self.rate)
-        self.rate_status=QLabel('未连接；采样率随完整配置提交 · ADC / 触发检测固定 100 MHz');self.rate_status.setWordWrap(True)
+        self.rate_status=QLabel('未连接');self.rate_status.setWordWrap(True)
         self.rate_status.setProperty('cssClass','field-hint');row.addWidget(self.rate_status,1)
         self.config_widgets.extend([self.len_mode,self.length,self.pre,self.rate])
         self.estimate=QLabel();self.estimate.setWordWrap(True);self.estimate.setProperty('cssClass','summary');box.addWidget(self.estimate)
@@ -73,22 +74,22 @@ class MainWindow(QMainWindow):
         self.threshold_settings=QWidget();box.addWidget(self.threshold_settings)
         threshold_box=QVBoxLayout(self.threshold_settings);threshold_box.setContentsMargins(0,0,0,0)
         grid=QGridLayout();grid.setHorizontalSpacing(20);grid.setVerticalSpacing(8);threshold_box.addLayout(grid)
-        for col,title in enumerate(('参与触发的通道','比较关系','阈值（原始 ADC 计数）','阈值说明')):
+        for col,title in enumerate(('通道','条件','阈值（ADC）','实际阈值')):
             label=QLabel(title);label.setProperty('cssClass','field-label');grid.addWidget(label,0,col)
         self.enable_v=QCheckBox('电压 · 通道 A');self.enable_v.setChecked(True)
         self.enable_i=QCheckBox('电流 · 通道 B');self.enable_i.setChecked(True)
         comparisons=['≥  大于等于','>  大于','=  等于','≤  小于等于','<  小于']
         self.vcmp=combo(comparisons);self.icmp=combo(comparisons);self.icmp.setCurrentIndex(4)
         self.vth=spin(0,4095,2500,' ADC');self.ith=spin(0,4095,1500,' ADC')
-        self.vth_hint=QLabel();self.ith_hint=QLabel('电流未标定，使用原始计数')
+        self.vth_hint=QLabel();self.ith_hint=QLabel()
         for r,enabled,comparison,threshold,hint in ((1,self.enable_v,self.vcmp,self.vth,self.vth_hint),(2,self.enable_i,self.icmp,self.ith,self.ith_hint)):
             comparison.setMinimumWidth(165);threshold.setMinimumWidth(190)
             comparison.setAccessibleName(enabled.text()+'比较关系');threshold.setAccessibleName(enabled.text()+'触发阈值')
-            hint.setProperty('cssClass','field-hint');hint.setWordWrap(True)
+            hint.setProperty('cssClass','threshold-value');hint.setWordWrap(True)
             grid.addWidget(enabled,r,0);grid.addWidget(comparison,r,1);grid.addWidget(threshold,r,2);grid.addWidget(hint,r,3)
         for col in range(4):grid.setColumnStretch(col,1)
         self.config_widgets.extend([self.mode,self.enable_v,self.enable_i,self.vcmp,self.icmp,self.vth,self.ith])
-        note=QLabel('自动模式：勾选通道按 OR 判断，任一路满足条件即可触发；使用电平比较。')
+        note=QLabel('任一通道满足条件即触发。')
         note.setWordWrap(True);note.setProperty('cssClass','field-hint');threshold_box.addWidget(note)
         row=QHBoxLayout();acq.addLayout(row);self.repeat=QCheckBox('重复自动记录');self.gap=spin(0,600000,1000,' ms')
         row.addWidget(self.repeat);row.addWidget(QLabel('记录间隔'));row.addWidget(self.gap);row.addStretch()
@@ -99,7 +100,7 @@ class MainWindow(QMainWindow):
         self.trigger=QLabel('尚未触发');acq.addWidget(self.trigger)
         self.metrics=QLabel('尚未接收数据');self.metrics.setWordWrap(True);acq.addWidget(self.metrics)
         self.progress=QProgressBar();self.progress.setRange(0,1000);self.progress.setValue(0);self.progress.setFormat('%p%');acq.addWidget(self.progress);acq.addStretch()
-        note=QLabel('采集后先暂存，可先查看波形；点击“保存选中记录”并确认位置后才建立 HEX + JSON 存档。退出前请保存需要保留的记录。');note.setWordWrap(True);rec.addWidget(note)
+        note=QLabel('先查看，再保存。');note.setWordWrap(True);rec.addWidget(note)
         self.path=QLineEdit();self.path.setReadOnly(True);self.path.setPlaceholderText('尚无采集记录');rec.addWidget(self.path)
         self.record_list=QListWidget();self.record_list.setMinimumHeight(110);rec.addWidget(self.record_list)
         row=QHBoxLayout();rec.addLayout(row)
@@ -110,7 +111,7 @@ class MainWindow(QMainWindow):
         self.plot_button.clicked.connect(lambda:self.plot_requested.emit(False));self.latest_button.clicked.connect(lambda:self.plot_requested.emit(True))
         row=QHBoxLayout();rec.addLayout(row)
         row.addWidget(self.action_button('read','读取设备已有记录','download'));row.addWidget(self.action_button('release','丢弃设备已有记录','trash-alt','danger'));row.addStretch()
-        rec.addWidget(QLabel('电压按已确认公式换算为 V，电流显示原始计数。\n有记录元数据时以触发为 t=0；旧文件以记录起点计时。'));rec.addStretch()
+        rec.addWidget(QLabel('电压 V · 电流 A · 保留原始计数'));rec.addStretch()
         widget,box=card('连接参数');dia.addWidget(widget);row=QHBoxLayout();box.addLayout(row)
         self.buffer=combo(['16','64','256']);self.buffer.setCurrentText('64');self.timeout=spin(1,600,30,' s')
         row.addWidget(QLabel('写盘缓冲 MiB'));row.addWidget(self.buffer);row.addWidget(QLabel('无进度超时'));row.addWidget(self.timeout);row.addStretch()
@@ -122,7 +123,7 @@ class MainWindow(QMainWindow):
         self.send_button=button('发送指令','paper-plane','primary');row.addWidget(self.send_button)
         self.send_button.clicked.connect(lambda:self.command_requested.emit(self.command.text()));self.command.returnPressed.connect(lambda:self.command_requested.emit(self.command.text()))
         self.log=QTextEdit();self.log.setReadOnly(True);dia.addWidget(self.log,1)
-        self.notice=QLabel('连接设备后准备采集，或直接打开已记录的 HEX 文件。');self.notice.setWordWrap(True);layout.addWidget(self.notice)
+        self.notice=QLabel('就绪');self.notice.setWordWrap(True);layout.addWidget(self.notice)
         self.len_mode.currentIndexChanged.connect(self.update_length_limit)
         for w in self.config_widgets:
             signal=getattr(w,'valueChanged',None) or getattr(w,'currentIndexChanged',None) or getattr(w,'toggled',None)
@@ -130,6 +131,7 @@ class MainWindow(QMainWindow):
         self.pre.valueChanged.connect(self.update_setting_hints)
         self.mode.currentIndexChanged.connect(self.update_setting_hints)
         self.vth.valueChanged.connect(self.update_setting_hints)
+        self.ith.valueChanged.connect(self.update_setting_hints)
         self.update_setting_hints();self.update_length_limit(0)
         self.set_idle()
 
@@ -161,9 +163,10 @@ class MainWindow(QMainWindow):
     def update_setting_hints(self,*args):
         self.pre_hint.setText(f'触发后占比：{100-self.pre.value()}%')
         self.threshold_settings.setVisible(self.mode.currentIndex()!=0)
-        self.mode_hint.setText('准备采集后，点击“手动触发”开始；阈值条件不参与判断。' if self.mode.currentIndex()==0
-                               else '准备采集后，等待已勾选通道满足下方条件。')
-        self.vth_hint.setText(f'对应电压 {self.vth.value()*12/4096-6:+.6f} V')
+        self.mode_hint.setText('准备后点击“手动触发”。' if self.mode.currentIndex()==0
+                               else '等待阈值条件。')
+        self.vth_hint.setText(f'{voltage_from_adc(self.vth.value()):+,.3f} V')
+        self.ith_hint.setText(f'{current_from_adc(self.ith.value()):+,.3f} A')
 
     def values(self):
         return dict(len_mode=self.len_mode.currentIndex(),length=self.length.value(),pre=self.pre.value(),mode=self.mode.currentIndex(),
@@ -185,7 +188,9 @@ class MainWindow(QMainWindow):
         return answer==QMessageBox.StandardButton.Discard
 
     def show_error(self,message):
-        self.notice.setText(str(message));self.notice.setProperty('cssClass','error');self.notice.style().unpolish(self.notice);self.notice.style().polish(self.notice)
+        text=str(message);self.diagnostic_messages.append(text);self.diagnostic_messages=self.diagnostic_messages[-100:]
+        summary=text.split('；')[0]
+        self.notice.setText(summary[:80]+(' · 详见设备诊断' if len(summary)>80 or summary!=text else ''));self.notice.setProperty('cssClass','error');self.notice.style().unpolish(self.notice);self.notice.style().polish(self.notice)
 
     def closeEvent(self,event):
         if self.allow_close:event.accept()

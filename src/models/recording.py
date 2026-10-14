@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+from .calibration import voltage_from_adc,current_from_adc
 
 SAMPLE_RATE_HZ = 100_000_000.0
 MAX_SOURCE_BYTES = 1024 * 1024 * 1024
@@ -106,8 +107,8 @@ def load_recording(path, *, cancel=None, progress=None, chunk_size=1024 * 1024,
                     index = int(np.flatnonzero(invalid)[0])
                     raise ValueError('第 %d 组电压原始值 %d 超过 12 位范围 0–4095；请检查文件格式和通道顺序'
                                      % (count + index, int(pairs[index, 0])))
-                if is_v26 and np.any(pairs[:,1] > 4095):
-                    raise ValueError('采集电流原始值超过 12 位范围 0–4095')
+                if np.any(pairs[:,1] > 4095):
+                    raise ValueError('电流原始值超过 12 位范围 0–4095，无法按探头倍率换算')
                 samples[count:count + len(pairs)] = pairs
                 count += len(pairs)
             if progress is not None:
@@ -162,6 +163,6 @@ def make_view(recording, *, start=0, stop=None, max_points=6000, sample_rate_hz=
     return CurveView(
         indices=indices,
         time_ms=(indices.astype(np.float64) - (recording.trigger_index or 0)) * (1000.0 / sample_rate_hz),
-        voltage=(raw[:, 0].astype(np.float64) * (2.0 / 4096.0) - 1.0) * 6.0,
-        current=raw[:, 1].astype(np.float64),
+        voltage=voltage_from_adc(raw[:, 0].astype(np.float64)),
+        current=current_from_adc(raw[:, 1].astype(np.float64)),
     )

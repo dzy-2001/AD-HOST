@@ -3,13 +3,14 @@ from pathlib import Path
 from PyQt6.QtCore import QObject,QTimer
 from ..models.waveform import sample_at,visible_range,measurement
 from ..models.v26_protocol import reason_text
+from ..models.calibration import CALIBRATION
 from .waveform_worker import WaveformWorker
 
 
 class WaveformController(QObject):
     def __init__(self,view):
         super().__init__(view);self.view=view;self.worker=WaveformWorker();self.recording=None;self.current_view=None
-        self.closed=False;self.busy=False;self.token=None;self.mode='pan';self.dragging=None;self.cursors={};self._setting=False
+        self.diagnostics={};self.closed=False;self.busy=False;self.token=None;self.mode='pan';self.dragging=None;self.cursors={};self._setting=False
         self._fit_next=False;self._target_range=None;self._active_range=None
         self.timer=QTimer(self);self.timer.timeout.connect(self.poll);self.timer.start(40)
         self.zoom_timer=QTimer(self);self.zoom_timer.setSingleShot(True);self.zoom_timer.timeout.connect(self.refresh_range)
@@ -31,7 +32,7 @@ class WaveformController(QObject):
         if path:self.load_path(path)
 
     def clear(self):
-        self.recording=None;self.current_view=None;self.cursors.clear();self.dragging=None;self._active_range=None
+        self.diagnostics={};self.recording=None;self.current_view=None;self.cursors.clear();self.dragging=None;self._active_range=None
         self.view.set_record_enabled(False)
         for line in self.view.lines:line.set_data([],[])
         for line in self.view.triggers+self.view.hover+sum(self.view.markers.values(),[]):line.set_visible(False)
@@ -65,15 +66,18 @@ class WaveformController(QObject):
             origin=self.recording.trigger_index
             st=(self.recording.metadata or {}).get('status',{})
             v28=(self.recording.metadata or {}).get('protocol')=='V28'
-            self.view.details.setText(f'{count:,} 组 · 保存 {self.recording.sample_rate_hz/1e6:g} MSPS / 通道 · '+
-                                      ('无采集元数据，按 100 MSPS 从记录起点计时' if origin is None else f'{"保存边界" if v28 else "触发位置"} {origin:,} · {reason_text(st.get("REASON",0))}'+(' · 边界样本在记录外' if origin==count else '')+(' · 按保存速率换算时间' if v28 else '')))
+            self.view.details.setText(f'{count:,} 点 · {self.recording.sample_rate_hz/1e6:g} MSPS'+('（默认）' if origin is None else '')+' · V / A')
+            self.diagnostics=dict(file=str(self.recording.path),samples=count,sample_rate_hz=self.recording.sample_rate_hz,
+                                  trigger_index=origin,metadata=self.recording.metadata,display_calibration=CALIBRATION,
+                                  time_axis='按保存边界和保存速率换算，未补偿原始触发相位' if v28 else '触发相对时间' if origin is not None else '缺少采集元数据，默认100MSPS、记录起点为零')
             self.view.axes[1].set_xlabel('Nominal time relative to saved boundary (ms)' if v28 else 'Time relative to trigger (ms)' if origin is not None else 'Time from record start (ms)')
             for line in self.view.triggers:line.set_visible(origin is not None)
             self._active_range=(0,count);self._set_limits(self.full_limits());self.view.display_curve(self.current_view,fit=True)
             self.view.navigation.update();self.view.navigation.push_current()
         else:
             self.current_view=value;self._active_range=self._target_range;self.view.display_curve(value,fit=self._fit_next);self._fit_next=False
-        self.view.status.setText(f'当前绘制 {len(self.current_view.indices):,} 个显示点；光标始终读取原始样本。')
+        self.diagnostics['display_points']=len(self.current_view.indices)
+        self.view.status.setText('就绪')
 
     def full_limits(self):
         r=self.recording;origin=r.trigger_index or 0;step=1000/r.sample_rate_hz

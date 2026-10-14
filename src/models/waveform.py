@@ -1,6 +1,7 @@
 """Original-sample cursor values and view ranges, independent of Qt."""
 from dataclasses import dataclass
 import math
+from .calibration import voltage_from_adc,current_from_adc
 
 
 @dataclass(frozen=True)
@@ -8,8 +9,9 @@ class SamplePoint:
     index: int
     time_ms: float
     voltage: float
-    current: int
+    current: float
     voltage_raw: int
+    current_raw: int
 
 
 def _coordinate(recording,time_ms):
@@ -21,7 +23,7 @@ def sample_at(recording,time_ms):
     index=max(0,min(len(recording.samples)-1,int(math.floor(_coordinate(recording,time_ms)+.5))))
     raw=recording.samples[index]
     return SamplePoint(index,(index-(recording.trigger_index or 0))*1000/recording.sample_rate_hz,
-                       int(raw[0])*12/4096-6,int(raw[1]),int(raw[0]))
+                       voltage_from_adc(int(raw[0])),current_from_adc(int(raw[1])),int(raw[0]),int(raw[1]))
 
 
 def visible_range(recording,left,right):
@@ -34,4 +36,4 @@ def visible_range(recording,left,right):
 
 def measurement(a,b):
     return dict(samples=b.index-a.index,time_ms=b.time_ms-a.time_ms,
-                voltage=b.voltage-a.voltage,current=b.current-a.current,voltage_raw=b.voltage_raw-a.voltage_raw)
+                voltage=b.voltage-a.voltage,current=b.current-a.current,voltage_raw=b.voltage_raw-a.voltage_raw,current_raw=b.current_raw-a.current_raw)

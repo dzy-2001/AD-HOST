@@ -19,7 +19,7 @@ class WaveformWindow(QMainWindow):
         row=QHBoxLayout();layout.addLayout(row);self.path=QLineEdit();self.path.setReadOnly(True);row.addWidget(self.path,1)
         self.choose_button=button('选择 HEX','folder-open','primary');self.cancel_button=button('取消解析','times','danger')
         row.addWidget(self.choose_button);row.addWidget(self.cancel_button)
-        self.details=QLabel('每组：电压 2 字节 + 电流 2 字节，大端无符号；电流显示原始计数。');self.details.setWordWrap(True);layout.addWidget(self.details)
+        self.details=QLabel('电压 V · 电流 A');self.details.setWordWrap(True);layout.addWidget(self.details)
         self.progress=QProgressBar();self.progress.setRange(0,1000);self.progress.setValue(0);self.progress.setFormat('%p%');layout.addWidget(self.progress)
         row=QHBoxLayout();layout.addLayout(row);self.tools={}
         for name,text,glyph in [('pan','拖动','hand-paper'),('zoom','框选放大','search-plus'),('measure','双光标','ruler-horizontal'),('home','全貌','expand'),('trigger','触发位置','bolt'),('fit','纵轴适应','arrows-alt-v'),('save','保存图片','image')]:
@@ -41,11 +41,11 @@ class WaveformWindow(QMainWindow):
             self.hover.append(ax.axvline(0,color='#8491A4',linestyle=':',linewidth=.8,visible=False))
             for name,mc in (('A','#5E81AC'),('B','#A35689')):
                 self.markers[name].append(ax.axvline(0,color=mc,linewidth=1.2,visible=False))
-        self.axes[0].set_ylabel('Voltage (V)');self.axes[1].set_ylabel('Current (raw)');self.axes[1].set_xlabel('Time (ms)')
+        self.axes[0].set_ylabel('Voltage (V)');self.axes[1].set_ylabel('Current (A)');self.axes[1].set_xlabel('Time (ms)')
         self.canvas=FigureCanvasQTAgg(self.figure);layout.addWidget(self.canvas,1)
         self.navigation=NavigationToolbar2QT(self.canvas,self);self.navigation.hide()
         self.readout=CursorReadout();layout.addWidget(self.readout)
-        self.status=QLabel('请选择已保存完成的 HEX 文件。');self.status.setWordWrap(True);layout.addWidget(self.status)
+        self.status=QLabel('选择记录查看波形。');self.status.setWordWrap(True);layout.addWidget(self.status)
         self.set_record_enabled(False);self.cancel_button.setEnabled(False)
 
     def choose_path(self):

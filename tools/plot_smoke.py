@@ -23,7 +23,7 @@ def pump(root, predicate, timeout=15):
 with tempfile.TemporaryDirectory() as directory:
     path = Path(directory) / 'known.hex'
     # 10001 samples: overview must be reduced; zoom must restore full detail.
-    path.write_bytes(b'08000001' * 5000 + b'0FFFABCD' + b'08000002' * 5000)
+    path.write_bytes(b'08000001' * 5000 + b'0FFF0FFF' + b'08000002' * 5000)
     root = tk.Tk()
     root.withdraw()
     app = App(root)
@@ -34,16 +34,16 @@ with tempfile.TemporaryDirectory() as directory:
     pump(root, lambda: not window.busy)
     assert window.recording is not None, window.status.get()
     assert len(window.recording.samples) == 10001
-    assert window.current_view.voltage.max() == 5.9970703125
-    assert window.current_view.current.max() == 43981
+    assert window.current_view.voltage.max() == 29985.3515625
+    assert window.current_view.current.max() == 239.8828125
     assert len(window.current_view.indices) < 10001
     # A toolbar-equivalent x-axis change must regenerate from original samples.
     window.axes[0].set_xlim(0.04995, 0.05005)
     pump(root, lambda: len(window.current_view.indices) < 30)
     assert 5000 in window.current_view.indices
-    assert window.current_view.voltage.max() == 5.9970703125
+    assert window.current_view.voltage.max() == 29985.3515625
     assert window.axes[0].get_ylabel() == 'Voltage (V)'
-    assert window.axes[1].get_ylabel() == 'Current (raw counts)'
+    assert window.axes[1].get_ylabel() == 'Current (A)'
     image = Path(directory) / 'view.png'
     window.figure.savefig(image)
     assert image.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
@@ -52,4 +52,4 @@ with tempfile.TemporaryDirectory() as directory:
     assert app.plot_window.winfo_exists()
     app.plot_window.close()
     root.destroy()
-print('PASS: offline popup, HEX parsing, exact voltage/time, raw current, zoom and PNG export')
+print('PASS: offline popup, HEX parsing, exact voltage/time, physical current, zoom and PNG export')

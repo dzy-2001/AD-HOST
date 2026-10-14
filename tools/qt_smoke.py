@@ -30,14 +30,18 @@ def run(v28=False):
             window.len_mode.setCurrentIndex(1);window.length.setValue(10001);window.pre.setValue(30)
             assert window.length.suffix()==' 点' and '采样点数' in window.length_label.text()
             assert '70%' in window.pre_hint.text()
-            assert '+1.324219 V' in window.vth_hint.text()
-            assert '不参与判断' in window.mode_hint.text()
+            assert '+6,621.094 V' in window.vth_hint.text()
+            window.vth.setValue(3072);window.ith.setValue(3072)
+            assert window.vth_hint.text()=='+15,000.000 V' and window.ith_hint.text()=='+120.000 A'
+            assert window.ith_hint.property('cssClass')=='threshold-value'
+            window.vth.setValue(2500);window.ith.setValue(1500)
+            assert '手动触发' in window.mode_hint.text()
             assert window.threshold_settings.isHidden()
             window.mode.setCurrentIndex(1);assert not window.threshold_settings.isHidden()
             window.mode.setCurrentIndex(0)
             if v28:
                 window.len_mode.setCurrentIndex(0);window.length.setValue(2);window.rate.setValue(5)
-                assert '10,000' in window.estimate.text() and '2.000000 ms' in window.estimate.text()
+                assert '10,000' in window.estimate.text() and '2.000000</b> ms' in window.estimate.text()
             window.connect_button.click();original=controller.session;controller.connect_device();assert controller.session is original
             pump(app,lambda:controller.session.snapshot()['can_start']);controller.refresh()
             if v28:
@@ -67,6 +71,9 @@ def run(v28=False):
             assert wave.cursors['A'].index==3000 and wave.cursors['B'].index==3005
             wave.motion(SimpleNamespace(inaxes=wave.view.axes[0],xdata=.0004 if v28 else .00002));assert wave.view.readout.cells['hover']['index'].text()=='3,002'
             assert wave.view.readout.cells['hover']['voltage_raw'].text()=='2048'
+            assert wave.view.readout.cells['hover']['current_raw'].text()=='2748'
+            assert wave.view.readout.cells['hover']['current'].text()=='82.031'
+            assert wave.view.axes[1].get_ylabel()=='Current (A)'
             assert wave.view.readout.cells['A']['voltage_raw'].text()=='2048'
             assert wave.view.readout.cells['B']['voltage_raw'].text()=='2048'
             assert wave.view.readout.cells['delta']['voltage_raw'].text()=='+0'
@@ -77,6 +84,11 @@ def run(v28=False):
             if screenshots:
                 output=Path(screenshots);output.mkdir(parents=True,exist_ok=True);app.processEvents();wave.view.canvas.draw()
                 window.grab().save(str(output/'main.png'));wave.view.grab().save(str(output/'waveform.png'))
+                window.mode.setCurrentIndex(1);app.processEvents()
+                window.grab().save(str(output/'main-auto.png'))
+                window.mode.setCurrentIndex(0)
+                wave.view.resize(950,680);app.processEvents()
+                wave.view.grab().save(str(output/'waveform-small.png'))
                 window.resize(950,680);app.processEvents()
                 start_button=window.actions['start']
                 assert window.centralWidget().rect().contains(start_button.mapTo(window.centralWidget(),start_button.rect().center()))

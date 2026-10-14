@@ -335,3 +335,11 @@ QCheckBox::indicator:checked {{
     image: none; 
 }}
 """
+
+# Physical trigger values use the shared Nord highlight palette.
+GLOBAL_STYLE += f'''
+QLabel[cssClass="threshold-value"] {{
+    color: {NORD0}; background-color: {NORD8}; font-weight: bold;
+    border: 1px solid {NORD9}; border-radius: 4px; padding: 7px 10px;
+}}
+'''
