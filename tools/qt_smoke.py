@@ -51,6 +51,10 @@ def run():
             wave.set_mode('measure');wave.set_cursor('A',0);wave.set_cursor('B',.00005)
             assert wave.cursors['A'].index==3000 and wave.cursors['B'].index==3005
             wave.motion(SimpleNamespace(inaxes=wave.view.axes[0],xdata=.00002));assert wave.view.readout.cells['hover']['index'].text()=='3,002'
+            assert wave.view.readout.cells['hover']['voltage_raw'].text()=='2048'
+            assert wave.view.readout.cells['A']['voltage_raw'].text()=='2048'
+            assert wave.view.readout.cells['B']['voltage_raw'].text()=='2048'
+            assert wave.view.readout.cells['delta']['voltage_raw'].text()=='+0'
             assert wave.view.readout.cells['delta']['index'].text()=='+5'
             assert wave.view.readout.cells['delta']['time'].text()=='+0.000050000'
             wave.save(Path(directory)/'plot.png');assert (Path(directory)/'plot.png').stat().st_size>1000
@@ -62,6 +66,9 @@ def run():
                 start_button=window.actions['start']
                 assert window.centralWidget().rect().contains(start_button.mapTo(window.centralWidget(),start_button.rect().center()))
                 window.grab().save(str(output/'main-small.png'))
+                window.activateWindow();window.len_mode.showPopup();app.processEvents()
+                window.len_mode.view().window().grab().save(str(output/'combo-popup.png'))
+                window.len_mode.hidePopup()
             wave.overview();pump(app,lambda:len(wave.current_view.indices)>100)
             wave.close();pump(app,lambda:wave.finished);assert wave.recording is None
             controller.open_plot();reopened=controller.waveforms[-1];assert reopened is not wave

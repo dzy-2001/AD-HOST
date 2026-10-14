@@ -12,7 +12,7 @@ def icon(name):
 
 
 def apply_theme(app):
-    app.setStyle('Fusion')
+    # Match the reference application: keep the platform default base style.
     app.setStyleSheet(GLOBAL_STYLE+f'''
         QDialog, QTabWidget::pane, QScrollArea, QScrollArea > QWidget > QWidget {{ background: {NORD6}; }}
         QTabWidget::pane {{ border: 1px solid {NORD4}; border-radius: 5px; }}

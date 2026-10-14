@@ -15,6 +15,7 @@ class WaveformModelTests(unittest.TestCase):
         self.assertAlmostEqual(point.time_ms,.00001)
         self.assertAlmostEqual(point.voltage,4095*12/4096-6)
         self.assertEqual(point.current,30)
+        self.assertEqual(point.voltage_raw,4095)
 
     def test_cursor_clamps_and_range_covers_endpoints(self):
         from src.models.waveform import sample_at,visible_range
@@ -32,6 +33,8 @@ class WaveformModelTests(unittest.TestCase):
         self.assertAlmostEqual(delta['time_ms'],.00002)
         self.assertEqual(delta['samples'],2)
         self.assertEqual(delta['current'],20)
+        self.assertEqual(delta['voltage_raw'],4095)
+        self.assertEqual(measurement(b,a)['voltage_raw'],-4095)
 
     def test_nonfinite_coordinates_rejected(self):
         from src.models.waveform import sample_at,visible_range

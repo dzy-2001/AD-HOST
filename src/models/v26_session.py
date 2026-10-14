@@ -260,7 +260,7 @@ class V26Session:
         self.receiving=True;self.phase='读取波形，已暂停状态查询'
         base=f'capture_{self.index:04d}_{s["SAMPLES"]}pairs_{uuid.uuid4().hex[:6]}'
         partial=self.directory/(base+'.partial.hex');final=self.directory/(base+'.hex')
-        meta=dict(format_version=3,application='AD-HOST Qt6 0.5.2',protocol='V26',complete=False,
+        meta=dict(format_version=3,application='AD-HOST Qt6 0.5.3',protocol='V26',complete=False,
                   status=s,active_settings=asdict(self.active) if self.active else None,
                   active_configuration_known=self.active is not None,diagnostics=dict(self.diagnostics),
                   expected_hex_bytes=self.expected,started_utc=datetime.now(timezone.utc).isoformat())

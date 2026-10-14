@@ -10,7 +10,7 @@ class CursorReadout(QFrame):
         grid=QGridLayout(self);grid.setContentsMargins(6,6,6,6)
         grid.setHorizontalSpacing(0);grid.setVerticalSpacing(1)
         self.cells={}
-        headings=('光标读数','采样点 / Δ点数','时间 / Δt（ms）','电压 / ΔV（V）','电流 / Δ计数（ADC）')
+        headings=('光标读数','采样点 / Δ点数','时间 / Δt（ms）','电压 / ΔV（V）','电压 / Δ计数（ADC）','电流 / Δ计数（ADC）')
         for col,text in enumerate(headings):
             label=QLabel(text);label.setProperty('cssClass','readout-heading')
             label.setAlignment((Qt.AlignmentFlag.AlignLeft if col==0 else Qt.AlignmentFlag.AlignRight)|Qt.AlignmentFlag.AlignVCenter)
@@ -18,7 +18,7 @@ class CursorReadout(QFrame):
         for row,(name,title) in enumerate((('hover','鼠标位置'),('A','光标 A'),('B','光标 B'),('delta','差值 B − A')),1):
             label=QLabel(title);label.setProperty('cssClass','readout-name');label.setProperty('readoutRow',name)
             grid.addWidget(label,row,0);self.cells[name]={}
-            for col,key in enumerate(('index','time','voltage','current'),1):
+            for col,key in enumerate(('index','time','voltage','voltage_raw','current'),1):
                 cell=QLabel('—');cell.setProperty('cssClass','readout-value');cell.setProperty('readoutRow',name)
                 cell.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
                 cell.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -30,11 +30,11 @@ class CursorReadout(QFrame):
             for cell in row.values():cell.setText('—')
 
     def set_point(self,name,point):
-        self._set_values(name,(f'{point.index:,}',f'{point.time_ms:.9f}',f'{point.voltage:.6f}',str(point.current)))
+        self._set_values(name,(f'{point.index:,}',f'{point.time_ms:.9f}',f'{point.voltage:.6f}',str(point.voltage_raw),str(point.current)))
 
     def set_difference(self,delta):
         self._set_values('delta',(f"{delta['samples']:+,}",f"{delta['time_ms']:+.9f}",
-                                  f"{delta['voltage']:+.6f}",f"{delta['current']:+d}"))
+                                  f"{delta['voltage']:+.6f}",f"{delta['voltage_raw']:+d}",f"{delta['current']:+d}"))
 
     def _set_values(self,name,values):
         for cell,value in zip(self.cells[name].values(),values):cell.setText(value)
