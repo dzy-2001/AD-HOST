@@ -28,6 +28,10 @@ def run():
         try:
             window.host.setText('127.0.0.1');window.port.setValue(board.port);window.output.setText(directory)
             window.len_mode.setCurrentIndex(1);window.length.setValue(10001);window.pre.setValue(30)
+            assert window.length.suffix()==' 点' and '采样点数' in window.length_label.text()
+            assert '70%' in window.pre_hint.text()
+            assert '+1.324219 V' in window.vth_hint.text()
+            assert '不参与判断' in window.mode_hint.text()
             window.connect_button.click();original=controller.session;controller.connect_device();assert controller.session is original
             pump(app,lambda:controller.session.snapshot()['can_start']);controller.refresh()
             window.actions['start'].click();pump(app,lambda:controller.session.snapshot()['can_force']);controller.refresh()
@@ -46,7 +50,9 @@ def run():
             assert 3000 in wave.current_view.indices
             wave.set_mode('measure');wave.set_cursor('A',0);wave.set_cursor('B',.00005)
             assert wave.cursors['A'].index==3000 and wave.cursors['B'].index==3005
-            wave.motion(SimpleNamespace(inaxes=wave.view.axes[0],xdata=.00002));assert '3,002' in wave.view.readout.text()
+            wave.motion(SimpleNamespace(inaxes=wave.view.axes[0],xdata=.00002));assert wave.view.readout.cells['hover']['index'].text()=='3,002'
+            assert wave.view.readout.cells['delta']['index'].text()=='+5'
+            assert wave.view.readout.cells['delta']['time'].text()=='+0.000050000'
             wave.save(Path(directory)/'plot.png');assert (Path(directory)/'plot.png').stat().st_size>1000
             screenshots=os.environ.get('AD_HOST_SCREENSHOTS')
             if screenshots:
@@ -55,7 +61,9 @@ def run():
             wave.overview();pump(app,lambda:len(wave.current_view.indices)>100)
             wave.close();pump(app,lambda:wave.finished);assert wave.recording is None
             controller.open_plot();reopened=controller.waveforms[-1];assert reopened is not wave
-            reopened.load_path(path);reopened.close();pump(app,lambda:reopened.finished)
+            reopened.load_path(path)
+            assert all(cell.text()=='—' for row in reopened.view.readout.cells.values() for cell in row.values())
+            reopened.close();pump(app,lambda:reopened.finished)
             assert board.interleaved==[]
             controller.close();pump(app,lambda:window.allow_close)
         finally:

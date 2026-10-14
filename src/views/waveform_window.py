@@ -6,6 +6,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg,NavigationToolba
 from .widgets.controls import button,spin,combo
 from .widgets.styles import NORD6,NORD4,NORD10,NORD12,NORD11
 from .widgets.theme import icon
+from .widgets.cursor_readout import CursorReadout
 
 
 class WaveformWindow(QMainWindow):
@@ -43,8 +44,7 @@ class WaveformWindow(QMainWindow):
         self.axes[0].set_ylabel('Voltage (V)');self.axes[1].set_ylabel('Current (raw)');self.axes[1].set_xlabel('Time (ms)')
         self.canvas=FigureCanvasQTAgg(self.figure);layout.addWidget(self.canvas,1)
         self.navigation=NavigationToolbar2QT(self.canvas,self);self.navigation.hide()
-        self.readout=QLabel('移动鼠标查看原始采样值；滚轮以鼠标位置为中心缩放时间轴。');self.readout.setWordWrap(True);layout.addWidget(self.readout)
-        self.measurement=QLabel('双光标：切换测量模式，选择 A/B 后点击波形，或拖动已有标记。');self.measurement.setWordWrap(True);layout.addWidget(self.measurement)
+        self.readout=CursorReadout();layout.addWidget(self.readout)
         self.status=QLabel('请选择已保存完成的 HEX 文件。');self.status.setWordWrap(True);layout.addWidget(self.status)
         self.set_record_enabled(False);self.cancel_button.setEnabled(False)
 

@@ -35,7 +35,7 @@ class WaveformController(QObject):
         self.view.set_record_enabled(False)
         for line in self.view.lines:line.set_data([],[])
         for line in self.view.triggers+self.view.hover+sum(self.view.markers.values(),[]):line.set_visible(False)
-        self.view.readout.setText('');self.view.measurement.setText('');self.view.canvas.draw_idle()
+        self.view.readout.clear_values();self.view.canvas.draw_idle()
 
     def load_path(self,path):
         if self.closed:return
@@ -70,7 +70,6 @@ class WaveformController(QObject):
             for line in self.view.triggers:line.set_visible(origin is not None)
             self._active_range=(0,count);self._set_limits(self.full_limits());self.view.display_curve(self.current_view,fit=True)
             self.view.navigation.update();self.view.navigation.push_current()
-            self.view.measurement.setText('测量模式：选择 A/B 后点击波形；也可拖动已有光标。')
         else:
             self.current_view=value;self._active_range=self._target_range;self.view.display_curve(value,fit=self._fit_next);self._fit_next=False
         self.view.status.setText(f'当前绘制 {len(self.current_view.indices):,} 个显示点；光标始终读取原始样本。')
@@ -152,17 +151,17 @@ class WaveformController(QObject):
         if self.dragging:self.set_cursor(self.dragging,event.xdata)
         point=sample_at(self.recording,event.xdata)
         for line in self.view.hover:line.set_xdata([point.time_ms]*2);line.set_visible(True)
-        self.view.readout.setText(f'采样点 {point.index:,} · t = {point.time_ms:.9f} ms · 电压 {point.voltage:.6f} V · 电流 {point.current} ADC')
+        self.view.readout.set_point('hover',point)
         self.view.canvas.draw_idle()
 
     def set_cursor(self,name,time_ms):
         if self.recording is None:return
         point=sample_at(self.recording,time_ms);self.cursors[name]=point
         for line in self.view.markers[name]:line.set_xdata([point.time_ms]*2);line.set_visible(True)
-        text='  |  '.join(f'{n}: #{p.index:,}, {p.time_ms:.9f} ms, {p.voltage:.6f} V, {p.current} ADC' for n,p in sorted(self.cursors.items()))
+        self.view.readout.set_point(name,point)
         if len(self.cursors)==2:
-            d=measurement(self.cursors['A'],self.cursors['B']);text+=f"\nB−A：Δt {d['time_ms']:.9f} ms · ΔN {d['samples']:,} · ΔV {d['voltage']:.6f} V · ΔI {d['current']} ADC"
-        self.view.measurement.setText(text);self.view.canvas.draw_idle()
+            self.view.readout.set_difference(measurement(self.cursors['A'],self.cursors['B']))
+        self.view.canvas.draw_idle()
 
     def save(self,path=None):
         if self.recording is None:return

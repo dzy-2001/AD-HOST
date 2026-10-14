@@ -21,7 +21,7 @@ class AcquisitionController(QObject):
     def estimate(self):
         try:
             config=AcquisitionSettings(**self.view.values());n=config.samples;p=config.pre_samples
-            self.view.estimate.setText(f'每通道 {n:,} 点 · {n/100000:.6f} ms · HEX {n*8/1e6:.3f} MB\n前 {p:,} / 后 {n-p:,} 点（后 {100-config.pre}%）'+(' · 不包含触发样本' if config.pre==100 else ''))
+            self.view.estimate.setText(f'每通道：<b>{n:,} 点</b>　|　时长：<b>{n/100000:.6f} ms</b>　|　HEX 大小：<b>{n*8/1e6:.3f} MB</b><br>触发前：<b>{p:,} 点（{config.pre}%）</b>　　触发后：<b>{n-p:,} 点（{100-config.pre}%）</b>'+('　· 不包含触发样本' if config.pre==100 else ''))
         except ValueError as exc:self.view.estimate.setText(str(exc))
 
     def connect_device(self):
