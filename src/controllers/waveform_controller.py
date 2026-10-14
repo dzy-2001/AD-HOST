@@ -45,8 +45,7 @@ class WaveformController(QObject):
 
     def cancel_load(self):
         # Supersede the in-flight load with a cancellation generation, without a new job.
-        with self.worker.condition:
-            self.worker.generation+=1;self.worker.cancel.set();self.worker.pending=None;self.worker.result=None
+        self.worker.invalidate()
         self.token=None;self.busy=False;self.view.choose_button.setEnabled(True);self.view.cancel_button.setEnabled(False)
         self.view.status.setText('解析已取消，可以选择其他文件。')
 
@@ -94,6 +93,7 @@ class WaveformController(QObject):
         limits=self.view.axes[0].get_xlim();start,stop=visible_range(self.recording,*limits)
         self.view.start.setValue(start);self.view.stop.setValue(stop)
         if self._active_range==(start,stop):
+            self.worker.invalidate();self.token=None;self._target_range=None
             if self._fit_next:self.view.display_curve(self.current_view,fit=True);self._fit_next=False
             return
         self._target_range=(start,stop);self.token=self.worker.request('view',self.recording,start,stop)
@@ -175,4 +175,4 @@ class WaveformController(QObject):
         if self.closed:return
         self.closed=True;self.timer.stop();self.zoom_timer.stop();self.worker.close();self.clear()
         for connection in self.connections:self.view.canvas.mpl_disconnect(connection)
-        self.view.allow_close=True;self.view.close()
+        self.view.allow_close=True;QTimer.singleShot(0,self.view.close)

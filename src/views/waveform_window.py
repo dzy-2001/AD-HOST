@@ -60,7 +60,7 @@ class WaveformWindow(QMainWindow):
     def display_curve(self,curve,fit=False):
         for line,data in zip(self.lines,(curve.voltage,curve.current)):line.set_data(curve.time_ms,data)
         if fit:
-            for ax in self.axes:ax.relim();ax.autoscale_view(scalex=False,scaley=True)
+            for ax in self.axes:ax.set_autoscaley_on(True);ax.relim();ax.autoscale_view(scalex=False,scaley=True)
         self.canvas.draw_idle()
 
     def closeEvent(self,event):

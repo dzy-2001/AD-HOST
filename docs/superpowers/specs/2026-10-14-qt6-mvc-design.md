@@ -25,3 +25,12 @@ Execution sequence:
 Review focus: never drop stop-repeat state; no networking on GUI thread; no stale data/results after close/reload; cursor reads original samples; bounded waveform jobs on repeated drag; no 0.4.1 strict version checks reintroduced; packaged icons/fonts available.
 
 Authorization: user already requested continuous implementation/testing/packaging without further stage confirmations. Implement inline. No architectural choices requiring new user input remain.
+
+
+Execution ledger
+- Model move preserves baseline implementations; compatibility aliases passed all 49 existing tests. Four raw sample/range tests and two background cancellation tests added (55 tests before Qt interaction coverage).
+- Shared styles.py matches supplied source exactly as normalized UTF-8 text (SHA256 f23520d43f19c78210f39cc022e509d3da0ec4d7a25ccb5c224cf11e34b4b53b). All visual corrections are in theme.py.
+- Windows and Linux Qt workflow smoke passed; Windows native-platform screenshots reviewed for Chinese font rendering and control visibility. Linux CI supplies EGL/OpenGL/xkbcommon and CJK fonts.
+- Independent review found stale pending range after Overview, reentrant close, and disabled y autoscaling after pan/zoom. Four real Qt regression tests reproduced all failures on run 38504905724; corrected by invalidation, queued close, and explicit y-autoscale enabling. Final green/build verification recorded in delivery report.
+- Local security environment prevents loading the Qt extension in the same process as the existing plotting dependency tree. GUI validation therefore runs on CI; local non-GUI tests remain usable. This is a test-environment limitation, not a bundled-program limitation.
+- User's continuous-execution authorization used throughout; no further approval gates or additional implementer agents. One read-only whole-change reviewer completed; no deferred review findings.

@@ -68,7 +68,7 @@ class AcquisitionController(QObject):
                 self.waveforms.remove(waveform);waveform.view.deleteLater()
         if self.closing:
             if not alive and all(w.finished for w in self.waveforms):
-                self.timer.stop();v.allow_close=True;v.close()
+                self.timer.stop();v.allow_close=True;QTimer.singleShot(0,v.close)
             return
         v.connect_button.setEnabled(not alive);v.disconnect_button.setEnabled(alive)
         for w in v.connection_widgets:w.setEnabled(not alive)

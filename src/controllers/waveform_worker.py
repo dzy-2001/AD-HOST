@@ -20,6 +20,10 @@ class WaveformWorker:
         with self.condition:
             result=self.result;self.result=None;return result,self.progress
 
+    def invalidate(self):
+        with self.condition:
+            self.generation+=1;self.cancel.set();self.pending=None;self.result=None
+
     def close(self):
         with self.condition:
             self.stopped=True;self.cancel.set();self.pending=None;self.result=None;self.condition.notify()
