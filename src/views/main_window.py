@@ -2,7 +2,7 @@
 from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QLabel,QLineEdit,
-                             QTabWidget,QCheckBox,QProgressBar,QTextEdit,QFileDialog,QScrollArea)
+                             QTabWidget,QCheckBox,QProgressBar,QTextEdit,QFileDialog,QScrollArea,QListWidget,QMessageBox)
 from .widgets.controls import button,card,spin,combo
 from .widgets.theme import icon
 
@@ -13,12 +13,13 @@ class MainWindow(QMainWindow):
     action_requested=pyqtSignal(str)
     command_requested=pyqtSignal(str)
     plot_requested=pyqtSignal(bool)
+    save_requested=pyqtSignal()
     close_requested=pyqtSignal()
     settings_changed=pyqtSignal()
 
     def __init__(self):
         super().__init__();self.allow_close=False
-        self.setWindowTitle('AD-HOST 0.6.1 · 采集与波形');self.setWindowIcon(icon('wave-square'))
+        self.setWindowTitle('AD-HOST 0.6.2 · 采集与波形');self.setWindowIcon(icon('wave-square'))
         self.resize(1180,870);self.setMinimumSize(950,680)
         root=QWidget();self.setCentralWidget(root);layout=QVBoxLayout(root);layout.setContentsMargins(18,14,18,12)
         title=QLabel('AD-HOST  /  双通道采集');title.setProperty('cssClass','title');layout.addWidget(title)
@@ -29,14 +30,14 @@ class MainWindow(QMainWindow):
         self.connect_button=button('连接','plug','primary');self.disconnect_button=button('断开','unlink')
         for item in (QLabel('IP 地址'),self.host,QLabel('端口'),self.port,self.connect_button,self.disconnect_button):row.addWidget(item)
         row.addStretch();self.state=QLabel('未连接');row.addWidget(self.state)
-        row=QHBoxLayout();box.addLayout(row);row.addWidget(QLabel('保存目录'))
-        self.output=QLineEdit(str(Path.home()/'Documents/AD-HOST/captures'));row.addWidget(self.output,1)
+        row=QHBoxLayout();box.addLayout(row);row.addWidget(QLabel('默认存档位置'))
+        self.output=QLineEdit(str(Path.home()/'Documents/AD-HOST'));row.addWidget(self.output,1)
         self.browse_button=button('选择目录','folder-open');row.addWidget(self.browse_button)
         self.browse_button.clicked.connect(self.choose_directory)
         self.connect_button.clicked.connect(self.connect_requested.emit);self.disconnect_button.clicked.connect(self.disconnect_requested.emit)
         self.tabs=QTabWidget();layout.addWidget(self.tabs,1)
         acquire,acq=self.page('采集与触发','sliders-h',with_footer=True);records,rec=self.page('记录与波形','chart-line');diag,dia=self.page('设备诊断','stethoscope')
-        self.connection_widgets=[self.host,self.port,self.output,self.browse_button]
+        self.connection_widgets=[self.host,self.port]
         self.config_widgets=[];self.actions={};self.query_buttons=[]
         widget,box=card('1  采样窗口');acq.addWidget(widget)
         grid=QGridLayout();grid.setHorizontalSpacing(24);grid.setVerticalSpacing(6);box.addLayout(grid)
@@ -69,7 +70,9 @@ class MainWindow(QMainWindow):
         label=QLabel('触发模式');label.setBuddy(self.mode);row.addWidget(label);row.addWidget(self.mode)
         self.mode_hint=QLabel();self.mode_hint.setWordWrap(True);self.mode_hint.setProperty('cssClass','field-hint')
         row.addSpacing(12);row.addWidget(self.mode_hint,1)
-        grid=QGridLayout();grid.setHorizontalSpacing(20);grid.setVerticalSpacing(8);box.addLayout(grid)
+        self.threshold_settings=QWidget();box.addWidget(self.threshold_settings)
+        threshold_box=QVBoxLayout(self.threshold_settings);threshold_box.setContentsMargins(0,0,0,0)
+        grid=QGridLayout();grid.setHorizontalSpacing(20);grid.setVerticalSpacing(8);threshold_box.addLayout(grid)
         for col,title in enumerate(('参与触发的通道','比较关系','阈值（原始 ADC 计数）','阈值说明')):
             label=QLabel(title);label.setProperty('cssClass','field-label');grid.addWidget(label,0,col)
         self.enable_v=QCheckBox('电压 · 通道 A');self.enable_v.setChecked(True)
@@ -86,7 +89,7 @@ class MainWindow(QMainWindow):
         for col in range(4):grid.setColumnStretch(col,1)
         self.config_widgets.extend([self.mode,self.enable_v,self.enable_i,self.vcmp,self.icmp,self.vth,self.ith])
         note=QLabel('自动模式：勾选通道按 OR 判断，任一路满足条件即可触发；使用电平比较。')
-        note.setWordWrap(True);note.setProperty('cssClass','field-hint');box.addWidget(note)
+        note.setWordWrap(True);note.setProperty('cssClass','field-hint');threshold_box.addWidget(note)
         row=QHBoxLayout();acq.addLayout(row);self.repeat=QCheckBox('重复自动记录');self.gap=spin(0,600000,1000,' ms')
         row.addWidget(self.repeat);row.addWidget(QLabel('记录间隔'));row.addWidget(self.gap);row.addStretch()
         self.config_widgets.extend([self.repeat,self.gap])
@@ -96,11 +99,14 @@ class MainWindow(QMainWindow):
         self.trigger=QLabel('尚未触发');acq.addWidget(self.trigger)
         self.metrics=QLabel('尚未接收数据');self.metrics.setWordWrap(True);acq.addWidget(self.metrics)
         self.progress=QProgressBar();self.progress.setRange(0,1000);self.progress.setValue(0);self.progress.setFormat('%p%');acq.addWidget(self.progress);acq.addStretch()
-        note=QLabel('每条记录保存为 HEX + JSON，请一起保留。波形窗口支持平移、缩放和双光标测量。');note.setWordWrap(True);rec.addWidget(note)
-        self.path=QLineEdit();self.path.setReadOnly(True);self.path.setPlaceholderText('尚无已保存记录');rec.addWidget(self.path)
+        note=QLabel('采集后先暂存，可先查看波形；点击“保存选中记录”并确认位置后才建立 HEX + JSON 存档。退出前请保存需要保留的记录。');note.setWordWrap(True);rec.addWidget(note)
+        self.path=QLineEdit();self.path.setReadOnly(True);self.path.setPlaceholderText('尚无采集记录');rec.addWidget(self.path)
+        self.record_list=QListWidget();self.record_list.setMinimumHeight(110);rec.addWidget(self.record_list)
         row=QHBoxLayout();rec.addLayout(row)
         self.plot_button=button('选择 HEX / 波形查看','chart-line','primary');row.addWidget(self.plot_button)
-        self.latest_button=button('打开最近记录','history');row.addWidget(self.latest_button);row.addStretch()
+        self.latest_button=button('查看选中记录','history');row.addWidget(self.latest_button)
+        self.save_record_button=button('保存选中记录','save','success');row.addWidget(self.save_record_button);row.addStretch()
+        self.save_record_button.clicked.connect(self.save_requested.emit)
         self.plot_button.clicked.connect(lambda:self.plot_requested.emit(False));self.latest_button.clicked.connect(lambda:self.plot_requested.emit(True))
         row=QHBoxLayout();rec.addLayout(row)
         row.addWidget(self.action_button('read','读取设备已有记录','download'));row.addWidget(self.action_button('release','丢弃设备已有记录','trash-alt','danger'));row.addStretch()
@@ -154,7 +160,8 @@ class MainWindow(QMainWindow):
 
     def update_setting_hints(self,*args):
         self.pre_hint.setText(f'触发后占比：{100-self.pre.value()}%')
-        self.mode_hint.setText('点击“手动触发”开始；下方阈值条件不参与判断。' if self.mode.currentIndex()==0
+        self.threshold_settings.setVisible(self.mode.currentIndex()!=0)
+        self.mode_hint.setText('准备采集后，点击“手动触发”开始；阈值条件不参与判断。' if self.mode.currentIndex()==0
                                else '准备采集后，等待已勾选通道满足下方条件。')
         self.vth_hint.setText(f'对应电压 {self.vth.value()*12/4096-6:+.6f} V')
 
@@ -164,8 +171,18 @@ class MainWindow(QMainWindow):
                     enable=int(self.enable_v.isChecked())+2*int(self.enable_i.isChecked()),gap_ms=self.gap.value(),rate_msps=self.rate.value())
 
     def set_idle(self):
-        self.disconnect_button.setEnabled(False);self.latest_button.setEnabled(False)
+        self.disconnect_button.setEnabled(False);self.latest_button.setEnabled(False);self.save_record_button.setEnabled(False)
         for w in list(self.actions.values())+self.query_buttons+[self.send_button]:w.setEnabled(False)
+
+    def confirm_archive_directory(self):
+        return QFileDialog.getExistingDirectory(self,'确认存档位置（保存后建立时间命名的子目录）',self.output.text(),
+                                               QFileDialog.Option.ShowDirsOnly)
+
+    def confirm_discard(self,count):
+        answer=QMessageBox.warning(self,'尚有未保存的波形',f'还有 {count} 条记录未保存，或采集仍在进行。关闭后将清理暂存数据。',
+                                   QMessageBox.StandardButton.Discard|QMessageBox.StandardButton.Cancel,
+                                   QMessageBox.StandardButton.Cancel)
+        return answer==QMessageBox.StandardButton.Discard
 
     def show_error(self,message):
         self.notice.setText(str(message));self.notice.setProperty('cssClass','error');self.notice.style().unpolish(self.notice);self.notice.style().polish(self.notice)

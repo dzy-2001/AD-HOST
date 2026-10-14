@@ -1,20 +1,25 @@
 """Connect view intents to the existing serial acquisition model."""
 import json
 import time
+import tempfile
 from pathlib import Path
 from PyQt6.QtCore import QObject,QTimer
 from ..models.core import CaptureConfig,RateMeter
 from ..models.v26_protocol import AcquisitionSettings,reason_text
 from ..models.v26_session import V26Session
+from ..models.archives import ArchiveJob
 
 
 class AcquisitionController(QObject):
     def __init__(self,view):
         super().__init__(view);self.view=view;self.session=None;self.waveforms=[];self.closing=False
         self.meter=None;self.last_sample=0;self.last_log='';self.last_error='';self.rate=0
+        self.cache=tempfile.TemporaryDirectory(prefix='AD-HOST-');self.records={};self.archive_job=None
+        self.cleanup_done=False
         view.connect_requested.connect(self.connect_device);view.disconnect_requested.connect(self.disconnect)
         view.action_requested.connect(self.action);view.command_requested.connect(self.send_command)
-        view.plot_requested.connect(self.open_plot);view.close_requested.connect(self.close)
+        view.plot_requested.connect(self.open_plot);view.close_requested.connect(self.request_close)
+        view.save_requested.connect(self.save_record);view.record_list.currentRowChanged.connect(self.update_selected_record)
         view.settings_changed.connect(self.estimate)
         self.timer=QTimer(self);self.timer.timeout.connect(self.refresh);self.timer.start(100);self.estimate()
 
@@ -28,7 +33,8 @@ class AcquisitionController(QObject):
         if self.closing or self.session and not self.session.wait(0):return
         v=self.view
         try:
-            config=CaptureConfig(v.host.text().strip(),v.port.value(),Path(v.output.text()),queue_chunks=int(v.buffer.currentText()))
+            config=CaptureConfig(v.host.text().strip(),v.port.value(),Path(self.cache.name),queue_chunks=int(v.buffer.currentText()))
+            self.collect_records()
             self.session=V26Session(config,progress_timeout=v.timeout.value());self.session.start()
             self.meter=RateMeter(time.monotonic());self.last_sample=0;self.rate=0;self.last_error='';self.refresh()
         except (ValueError,OSError) as exc:v.show_error(exc)
@@ -58,16 +64,69 @@ class AcquisitionController(QObject):
         if active is None:
             active=WaveformController(WaveformWindow(self.view));self.waveforms.append(active)
         active.view.show();active.view.raise_();active.view.activateWindow()
-        path=self.session.snapshot()['last_path'] if latest and self.session else ''
+        record=self.selected_record();path=(record['archive'] or record['source']) if latest and record else ''
         if path:active.load_path(path)
+
+    def collect_records(self):
+        if not self.session:return
+        for path in self.session.snapshot()['records']:
+            if path not in self.records:
+                self.records[path]=dict(source=path,archive='')
+                self.view.record_list.addItem(Path(path).stem+' · 待保存')
+                self.view.record_list.setCurrentRow(self.view.record_list.count()-1)
+
+    def selected_record(self):
+        row=self.view.record_list.currentRow()
+        return list(self.records.values())[row] if 0<=row<len(self.records) else None
+
+    def update_selected_record(self,*args):
+        record=self.selected_record()
+        self.view.latest_button.setEnabled(record is not None)
+        self.view.save_record_button.setEnabled(record is not None and not record['archive'] and self.archive_job is None)
+        self.view.path.setText((record['archive'] or '暂存（尚未存档）：'+Path(record['source']).name) if record else '')
+
+    def save_record(self):
+        record=self.selected_record()
+        if self.closing or self.archive_job or not record or record['archive']:return
+        # Snapshot selection before the modal dialog: new captures may arrive meanwhile.
+        source=record['source'];parent=self.view.confirm_archive_directory()
+        if not parent or self.closing:return
+        self.view.output.setText(parent)
+        self.archive_job=ArchiveJob(source,parent);self.archive_job.start()
+        self.view.notice.setText('正在保存选中的波形记录…');self.update_selected_record()
+
+    def poll_archive(self):
+        job=self.archive_job
+        if job is None or not job.done.is_set():return
+        job.thread.join();self.archive_job=None
+        if job.error:self.view.show_error('存档失败，暂存记录仍可重试：'+job.error)
+        else:
+            record=self.records[str(job.source)];record['archive']=str(job.path)
+            row=list(self.records).index(str(job.source))
+            self.view.record_list.item(row).setText(job.path.parent.name+' · 已保存')
+            self.view.notice.setText('已存档：'+str(job.path.parent))
+        self.update_selected_record()
+
+    def request_close(self):
+        self.collect_records();self.poll_archive()
+        pending=sum(not r['archive'] for r in self.records.values())
+        snap=self.session.snapshot() if self.session else {}
+        active=bool(snap.get('receiving') or snap.get('busy') or snap.get('repeat') or snap.get('status',{}).get('PENDING',0) or snap.get('status',{}).get('STATUS',0)&2)
+        if (pending or active) and not self.view.confirm_discard(pending):return
+        self.close()
 
     def refresh(self):
         v=self.view;alive=self.session is not None and not self.session.wait(0)
+        self.collect_records();self.poll_archive();self.update_selected_record()
         for waveform in self.waveforms[:]:
             if waveform.closed and waveform.finished:
                 self.waveforms.remove(waveform);waveform.view.deleteLater()
         if self.closing:
-            if not alive and all(w.finished for w in self.waveforms):
+            if not alive and all(w.finished for w in self.waveforms) and self.archive_job is None:
+                if not self.cleanup_done:
+                    try:self.cache.cleanup();self.cleanup_done=True
+                    except OSError as exc:
+                        v.show_error('暂存目录清理失败：'+str(exc));self.timer.stop();v.allow_close=True;QTimer.singleShot(0,v.close);return
                 self.timer.stop();v.allow_close=True;QTimer.singleShot(0,v.close)
             return
         v.connect_button.setEnabled(not alive);v.disconnect_button.setEnabled(alive)
@@ -95,7 +154,6 @@ class AcquisitionController(QObject):
         v.metrics.setText(f"TCP {self.rate/1e6:.2f} MB/s · 已接收 {s['received']:,} / {s['expected']:,} B · 已写入 {s['written']:,} B\n待写 {s['pending']/1048576:.1f} / {s['buffer_bytes']/1048576:.0f} MiB · 完成 {s['completed']} 条")
         v.progress.setValue(int(s['received']/max(1,s['expected'])*1000))
         st=s['status'];v.trigger.setText(f"触发原因：{reason_text(st.get('REASON',0))} · 前触发位置 {st.get('ACTIVE_PRE','—')} · 间隔剩余 {st.get('GAP_LEFT_MS','未知')} ms")
-        if s['last_path']:v.path.setText(s['last_path']);v.latest_button.setEnabled(True)
         if s['error'] and s['error']!=self.last_error:v.show_error(s['error']);self.last_error=s['error']
         elif not s['error'] and self.last_error:
             self.last_error='';v.notice.setText('设备状态已恢复，可按当前状态操作。');v.notice.setProperty('cssClass','')

@@ -26,12 +26,15 @@ def run(v28=False):
     with tempfile.TemporaryDirectory() as directory:
         board=Simulator(fragment=7,fault='identity_changed',rate_support=v28)
         try:
-            window.host.setText('127.0.0.1');window.port.setValue(board.port);window.output.setText(directory)
+            window.host.setText('127.0.0.1');window.port.setValue(board.port);window.output.setText(str(Path(directory)/'archives'))
             window.len_mode.setCurrentIndex(1);window.length.setValue(10001);window.pre.setValue(30)
             assert window.length.suffix()==' 点' and '采样点数' in window.length_label.text()
             assert '70%' in window.pre_hint.text()
             assert '+1.324219 V' in window.vth_hint.text()
             assert '不参与判断' in window.mode_hint.text()
+            assert window.threshold_settings.isHidden()
+            window.mode.setCurrentIndex(1);assert not window.threshold_settings.isHidden()
+            window.mode.setCurrentIndex(0)
             if v28:
                 window.len_mode.setCurrentIndex(0);window.length.setValue(2);window.rate.setValue(5)
                 assert '10,000' in window.estimate.text() and '2.000000 ms' in window.estimate.text()
@@ -47,6 +50,7 @@ def run(v28=False):
             window.actions['start'].click();pump(app,lambda:controller.session.snapshot()['can_force']);controller.refresh()
             assert window.actions['force'].isEnabled();window.actions['force'].click()
             pump(app,lambda:controller.session.snapshot()['completed']==1);controller.refresh()
+            assert not (Path(directory)/'archives').exists()
             path=Path(controller.session.snapshot()['last_path']);assert path.read_bytes()==b'08000ABC'*(10000 if v28 else 10001)
             window.latest_button.click();wave=controller.waveforms[-1]
             pump(app,lambda:wave.recording is not None and not wave.busy)

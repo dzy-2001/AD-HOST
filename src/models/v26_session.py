@@ -8,7 +8,7 @@ import queue
 import socket
 import threading
 import time
-import uuid
+from .archives import reserve_directory
 
 from .v26_protocol import (AcquisitionSettings,ERROR_MASK,can_arm,can_get,can_force,
                            can_release,parse_fst,parse_tst,validate_record,record_rate_hz)
@@ -23,13 +23,13 @@ class V26Session:
     def __init__(self,config,*,command_timeout=5,progress_timeout=30,poll_interval=.1):
         self.config=config;self.command_timeout=command_timeout;self.progress_timeout=progress_timeout
         self.poll_interval=poll_interval
-        self.directory=Path(config.output_dir).resolve()/(datetime.now().strftime('%Y%m%d_%H%M%S_')+uuid.uuid4().hex[:8])
+        self.directory=Path(config.output_dir).resolve()
         self._lock=threading.RLock();self._halt=threading.Event();self._done=threading.Event()
         self._actions=queue.Queue(maxsize=1);self._pending=False;self._events=deque(maxlen=300)
         self._sock=None;self.transport=None;self._worker=None
         self.state='new';self.phase='未连接';self.error='';self.status={};self.diagnostics={};self.status_error=''
         self.configured=None;self.active=None;self.managed=False;self.repeating=False;self._repeat_stopped=False
-        self.receiving=False;self.completed=0;self.last_path='';self.rx=0;self.tx=0
+        self.receiving=False;self.completed=0;self.last_path='';self.records=[];self.rx=0;self.tx=0
         self.expected=0;self.received=0;self.written=0;self.index=0;self.capture_started=0
         self._bad_metadata=0;self._next_poll=0
 
@@ -53,7 +53,7 @@ class V26Session:
                         can_read=available and not self.managed and can_get(s),
                         can_release=available and not self.managed and can_release(s),
                         can_cancel=available and bool(s.get('STATUS',0)&(2|4)) or self.receiving,
-                        completed=self.completed,last_path=self.last_path,rx_bytes=self.rx,tx_bytes=self.tx,
+                        completed=self.completed,last_path=self.last_path,records=list(self.records),rx_bytes=self.rx,tx_bytes=self.tx,
                         expected=self.expected,received=self.received,written=self.written,
                         pending=max(0,self.received-self.written),buffer_bytes=self.config.chunk_bytes*self.config.queue_chunks,
                         elapsed=time.monotonic()-self.capture_started if self.capture_started else 0,
@@ -167,7 +167,7 @@ class V26Session:
 
     def _run(self):
         try:
-            self.directory.mkdir(parents=True)
+            self.directory=reserve_directory(self.directory)
             sock=socket.create_connection((self.config.host,self.config.port),timeout=self.command_timeout)
             self._sock=sock;sock.settimeout(.1);sock.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,self.config.rcvbuf_bytes)
             self.transport=Transport(sock,self._halt,lambda n:self._add('rx',n),lambda n:self._add('tx',n),self.command_timeout)
@@ -319,9 +319,11 @@ class V26Session:
         s=dict(self.status);validate_record(s,self.active)
         self.index+=1;self.expected=s['HEX_CHARS'];self.received=0;self.written=0;self.capture_started=time.monotonic()
         self.receiving=True;self.phase='读取波形，已暂停状态查询'
-        base=f'capture_{self.index:04d}_{s["SAMPLES"]}pairs_{uuid.uuid4().hex[:6]}'
+        stem=datetime.now().strftime('%Y%m%d_%H%M');base=stem;suffix=0
+        while any(self.directory.glob(base+'.*')):
+            suffix+=1;base=f'{stem}_{suffix}'
         partial=self.directory/(base+'.partial.hex');final=self.directory/(base+'.hex')
-        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.1',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
+        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.2',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
                   sample_rate_hz=record_rate_hz(s),adc_clock_hz=s['RATE'],complete=False,
                   status=s,active_settings=asdict(self.active) if self.active else None,
                   active_configuration_known=self.active is not None,diagnostics=dict(self.diagnostics),
@@ -374,5 +376,7 @@ class V26Session:
             # Any earlier failure leaves the data visibly marked partial.
             if success:partial.replace(final)
             self.receiving=False
-        self.last_path=str(final);self.completed+=1;self._event(f'已完整保存 {self.expected:,} HEX 字节：{final.name}')
+        with self._lock:
+            self.last_path=str(final);self.records.append(str(final));self.completed+=1
+        self._event(f'已完整接收 {self.expected:,} HEX 字节：{final.name}')
         self._status()
