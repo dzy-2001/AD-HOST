@@ -19,11 +19,12 @@ class AcquisitionSettings:
     icmp: int = 4
     enable: int = 3
     gap_ms: int = 1000
+    rate_msps: int = 100
 
     def __post_init__(self):
         limits = dict(len_mode=(0,1), length=(1,200 if self.len_mode == 0 else 20_000_000),
                       pre=(0,100), mode=(0,1), vth=(0,4095), vcmp=(0,4),
-                      ith=(0,4095), icmp=(0,4), enable=(0,3), gap_ms=(0,600000))
+                      ith=(0,4095), icmp=(0,4), enable=(0,3), gap_ms=(0,600000), rate_msps=(1,100))
         for name, (low,high) in limits.items():
             value = getattr(self,name)
             if type(value) is not int or not low <= value <= high:
@@ -33,22 +34,32 @@ class AcquisitionSettings:
 
     @property
     def samples(self):
-        return self.length * 100000 if self.len_mode == 0 else self.length
+        return self.length * self.rate_msps * 1000 if self.len_mode == 0 else self.length
 
     @property
     def pre_samples(self):
         return self.samples * self.pre // 100
 
-    def command(self, verb='CFG'):
+    def command(self, verb='CFG', *, include_rate=True):
         if verb not in ('CFG','ACQ'):
             raise ValueError('配置命令必须为 CFG 或 ACQ')
-        return (verb+' '+','.join(str(v) for v in asdict(self).values())+'\r').encode('ascii')
+        values=list(asdict(self).values())
+        if not include_rate:
+            if self.rate_msps!=100:raise ValueError('设备未提供可调保存速率；只能使用 100 MSPS')
+            values=values[:-1]
+        return (verb+' '+','.join(str(v) for v in values)+'\r').encode('ascii')
 
     def matches(self, status):
-        expected = dict(LENMODE=self.len_mode, CFG_SAMPLES=self.samples,
-                        TIME=self.length if self.len_mode == 0 else 0,
+        expected = dict(LENMODE=self.len_mode,
                         PRE=self.pre, MODE=self.mode, VTH=self.vth, VCMP=self.vcmp,
                         ITH=self.ith, ICMP=self.icmp, ENABLE=self.enable, GAP_MS=self.gap_ms)
+        if self.len_mode==0:
+            expected['TIME']=self.length
+            # V28 CFG_SAMPLES is the point-count register, not time-mode N.
+            if 'CFG_RATE_MSPS' not in status:expected['CFG_SAMPLES']=self.samples
+        else:expected['CFG_SAMPLES']=self.samples
+        if 'CFG_RATE_MSPS' in status:expected['CFG_RATE_MSPS']=self.rate_msps
+        elif self.rate_msps!=100:return False
         return all(status.get(k) == v for k,v in expected.items())
 
 
@@ -107,13 +118,25 @@ def can_release(s):
     return bool(s.get('CTRL')==0 and status&4 and not status&(2|0x100) and status&(0x80|0x400|0x10))
 
 
+def record_rate_hz(s):
+    """Use the latched save rate, never V28 RATE (the original ADC clock)."""
+    if 'CFG_RATE_MSPS' in s or 'ACTIVE_RATE_MSPS' in s:
+        rate=s.get('ACTIVE_RATE_MSPS')
+        if type(rate) is not int or not 1<=rate<=100:
+            raise ValueError('记录缺少有效 ACTIVE_RATE_MSPS 保存速率')
+        return rate*1_000_000
+    return RATE
+
+
 def validate_record(s, active=None):
     n=s['SAMPLES']
     if not (1 <= n <= 20_000_000 and s['TOTAL']==n*4 and s['HEX_CHARS']==n*8
             and s['BLOCKS']==(n*4+8191)//8192 and 0 <= s['ACTIVE_PRE'] <= n and s['RATE']==RATE):
         raise ValueError('记录元数据不一致：SAMPLES/TOTAL/HEX_CHARS/BLOCKS/ACTIVE_PRE/RATE')
-    if active is not None and (n != active.samples or s['ACTIVE_PRE'] != active.pre_samples):
-        raise ValueError('完成记录与本次启动的长度/前触发位置不一致')
+    saved_rate=record_rate_hz(s)
+    if active is not None and (n != active.samples or s['ACTIVE_PRE'] != active.pre_samples
+                               or saved_rate != active.rate_msps*1_000_000):
+        raise ValueError('完成记录与本次启动的长度/前触发位置/保存速率不一致')
 
 
 def reason_text(reason):

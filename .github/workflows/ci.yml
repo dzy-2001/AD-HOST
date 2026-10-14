@@ -31,6 +31,10 @@ jobs:
         env:
           AD_HOST_SCREENSHOTS: screenshots
         run: python tools/qt_smoke.py
+      - name: V28 5 MSPS acquisition and waveform timebase smoke test
+        env:
+          AD_HOST_SCREENSHOTS: screenshots/v28
+        run: python tools/qt_smoke.py --v28
       - name: Compare combo popup styles
         env:
           AD_HOST_SCREENSHOTS: screenshots

@@ -56,17 +56,22 @@ def load_recording(path, *, cancel=None, progress=None, chunk_size=1024 * 1024,
             raise ValueError('该记录被标记为未完成，不能作为完整波形打开')
     if '.partial.' in path.name:
         raise ValueError('该文件是未完成的采集记录')
-    is_v26 = metadata is not None and metadata.get('protocol') == 'V26'
+    is_v26 = metadata is not None and metadata.get('protocol') in ('V26','V28')
     if is_v26:
-        from .v26_protocol import validate_record
+        from .v26_protocol import validate_record,record_rate_hz
         status = metadata.get('status')
         keys = ('SAMPLES','TOTAL','HEX_CHARS','BLOCKS','ACTIVE_PRE','RATE')
         if (metadata.get('complete') is not True or not isinstance(status,dict)
                 or any(type(status.get(k)) is not int for k in keys)):
-            raise ValueError('V26 记录状态或元数据缺失')
+            raise ValueError('采集记录状态或元数据缺失')
+        if metadata.get('protocol')=='V28' and 'ACTIVE_RATE_MSPS' not in status:
+            raise ValueError('V28 记录缺少实际保存采样率')
         validate_record(status)
+        saved_rate=record_rate_hz(status)
+        if 'sample_rate_hz' in metadata and metadata['sample_rate_hz']!=saved_rate:
+            raise ValueError('记录保存采样率与锁存状态不一致')
         if metadata.get('written_hex_bytes') != status['HEX_CHARS']:
-            raise ValueError('V26 写入字节数与记录长度不一致')
+            raise ValueError('采集写入字节数与记录长度不一致')
     if chunk_size < 1:
         raise ValueError('读取块大小必须大于零')
     with path.open('rb') as handle:
@@ -102,7 +107,7 @@ def load_recording(path, *, cancel=None, progress=None, chunk_size=1024 * 1024,
                     raise ValueError('第 %d 组电压原始值 %d 超过 12 位范围 0–4095；请检查文件格式和通道顺序'
                                      % (count + index, int(pairs[index, 0])))
                 if is_v26 and np.any(pairs[:,1] > 4095):
-                    raise ValueError('V26 电流原始值超过 12 位范围 0–4095')
+                    raise ValueError('采集电流原始值超过 12 位范围 0–4095')
                 samples[count:count + len(pairs)] = pairs
                 count += len(pairs)
             if progress is not None:
@@ -119,9 +124,9 @@ def load_recording(path, *, cancel=None, progress=None, chunk_size=1024 * 1024,
     samples = samples[:count]
     samples.flags.writeable = False
     if is_v26 and count != status['SAMPLES']:
-        raise ValueError('文件实际点数与 V26 元数据不一致')
+        raise ValueError('文件实际点数与采集元数据不一致')
     return Recording(path, samples, status['ACTIVE_PRE'] if is_v26 else None,
-                     status['RATE'] if is_v26 else SAMPLE_RATE_HZ, metadata)
+                     saved_rate if is_v26 else SAMPLE_RATE_HZ, metadata)
 
 
 def make_view(recording, *, start=0, stop=None, max_points=6000, sample_rate_hz=None):

@@ -21,7 +21,7 @@ class AcquisitionController(QObject):
     def estimate(self):
         try:
             config=AcquisitionSettings(**self.view.values());n=config.samples;p=config.pre_samples
-            self.view.estimate.setText(f'每通道：<b>{n:,} 点</b>　|　时长：<b>{n/100000:.6f} ms</b>　|　HEX 大小：<b>{n*8/1e6:.3f} MB</b><br>触发前：<b>{p:,} 点（{config.pre}%）</b>　　触发后：<b>{n-p:,} 点（{100-config.pre}%）</b>'+('　· 不包含触发样本' if config.pre==100 else ''))
+            self.view.estimate.setText(f'每通道：<b>{n:,} 点</b>　|　时长：<b>{n/(config.rate_msps*1000):.6f} ms</b>　|　HEX 大小：<b>{n*8/1e6:.3f} MB</b><br>触发前：<b>{p:,} 点（{config.pre}%）</b>　　触发后：<b>{n-p:,} 点（{100-config.pre}%）</b>'+('　· 不包含触发样本' if config.pre==100 else ''))
         except ValueError as exc:self.view.estimate.setText(str(exc))
 
     def connect_device(self):
@@ -39,7 +39,7 @@ class AcquisitionController(QObject):
     def action(self,name):
         try:
             if self.session is None or self.closing:raise ValueError('请先连接设备')
-            config=AcquisitionSettings(**self.view.values()) if name in ('configure','start') else None
+            config=self.view.rate.value() if name=='rate' else AcquisitionSettings(**self.view.values()) if name in ('configure','start') else None
             self.session.submit(name,config,repeat=self.view.repeat.isChecked() if name=='start' else False)
             self.refresh()
         except (ValueError,RuntimeError) as exc:self.view.show_error(exc)
@@ -74,7 +74,10 @@ class AcquisitionController(QObject):
         for w in v.connection_widgets:w.setEnabled(not alive)
         if not self.session:return
         s=self.session.snapshot();v.state.setText(s['phase'])
-        for action,key in (('configure','can_start'),('start','can_start'),('force','can_force'),('cancel','can_cancel'),('read','can_read'),('release','can_release')):
+        if 'CFG_RATE_MSPS' in s['status']:
+            v.rate_status.setText(f"设备配置 {s['status']['CFG_RATE_MSPS']} MSPS · 当前锁存 {s['status'].get('ACTIVE_RATE_MSPS','—')} MSPS · ADC 100 MHz")
+        else:v.rate_status.setText('设备未提供速率字段；保存采样率使用 100 MSPS')
+        for action,key in (('rate','can_set_rate'),('configure','can_start'),('start','can_start'),('force','can_force'),('cancel','can_cancel'),('read','can_read'),('release','can_release')):
             v.actions[action].setEnabled(bool(s[key]))
         v.actions['stop_repeat'].setEnabled(s['repeat'])
         for w in v.config_widgets:w.setEnabled(not alive or bool(s['can_start']))

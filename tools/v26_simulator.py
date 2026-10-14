@@ -7,14 +7,15 @@ import time
 
 
 class Simulator:
-    def __init__(self, port=0, *, fragment=0, fault=None, mbps=0):
+    def __init__(self, port=0, *, fragment=0, fault=None, mbps=0, rate_support=False):
         self.listener=socket.socket();self.listener.bind(('127.0.0.1',port));self.listener.listen(1)
         self.listener.settimeout(.2);self.port=self.listener.getsockname()[1]
-        self.fragment=fragment;self.fault=fault;self.mbps=mbps
+        self.fragment=fragment;self.fault=fault;self.mbps=mbps;self.rate_support=rate_support;self.samples_register=1
         self.stop_event=threading.Event();self.get_active=threading.Event()
         self.commands=[];self.interleaved=[];self.error=None
         self.arm_gate=None;self.arm_count=0
         self.config=[0,10,30,0,2500,0,1500,4,3,1000]
+        if rate_support:self.config.append(100)
         self.active=None;self.phase='ready';self.polls=0;self.gap_until=0;self.conn=None
         self.thread=threading.Thread(target=self._serve,daemon=True);self.thread.start()
 
@@ -31,7 +32,7 @@ class Simulator:
 
     def status(self):
         c=self.config;a=self.active or c
-        n=a[1]*100000 if a[0]==0 else a[1]
+        n=a[1]*(a[10] if len(a)>10 else 100)*1000 if a[0]==0 else a[1]
         done=self.phase=='done';busy=self.phase=='armed'
         status=0x20EC if done else 0x2062 if busy else 0x2061
         result=dict(STATUS=f'{status:04X}',EVENTS='0001',TRIGGER='0003' if busy else '0086' if done else '0000',
@@ -42,6 +43,11 @@ class Simulator:
                     ACTIVE_PRE=n*a[2]//100,RATE=100000000,SAMPLES=n if done else 0,TOTAL=n*4 if done else 0,
                     BLOCKS=(n*4+8191)//8192 if done else 0,DDR_WRITE_BURSTS=123,BURSTS_STABLE=1,HEX_CHARS=n*8 if done else 0,
                     GAP_MS=c[9],GAP_LEFT_MS=max(0,int((self.gap_until-time.monotonic())*1000)+1))
+        if self.rate_support:
+            result.update(CFG_RATE_MSPS=c[10],ACTIVE_RATE_MSPS=a[10] if len(a)>10 else 100,
+                          TRIGGER_DELAY_TICKS=17,TRIGGER_PHASE=3,CFG_SAMPLES=self.samples_register)
+            if self.fault=='active_rate_mismatch' and done:result['ACTIVE_RATE_MSPS']=100 if a[10]!=100 else 5
+            if self.fault=='cfg_rate_mismatch':result['CFG_RATE_MSPS']=100
         if self.fault=='missing_gap':result.pop('GAP_LEFT_MS')
         return ','.join(f'{k}:{v}' for k,v in result.items()).encode()
 
@@ -52,14 +58,24 @@ class Simulator:
         if name in ('VER','FST') and self.fault=='identity_rejected':return bad
         if name=='VER' and self.fault=='identity_changed':return b'V1.0.14 (V27)'+ok
         if name=='FST' and self.fault=='identity_changed':return b'ID:1234,VER:0300,INIT:0,IERR:7,HCLK:120000000,SDCLK:60000000'+ok
-        if name=='VER':return b'V1.0.13 (V26)'+ok
+        if name=='VER':return (b'V1.0.15 (V28)' if self.rate_support else b'V1.0.13 (V26)')+ok
         if name in ('FST','FREG'):return b'ID:ADFC,VER:0200,INIT:1,IERR:0,SET:10,1,HCLK:168000000,SDCLK:56000000'+ok
         if name=='TST':
             self.polls+=1
             if self.phase=='armed' and self.active[3]==1 and self.polls>=3:self.phase='done'
             return self.status()+ok
+        if name=='RATE':
+            if not self.rate_support:return bad
+            value=cmd.split(' ',1)[1]
+            if not value.isdigit() or not 1<=int(value)<=100:return bad
+            self.config[10]=int(value)
+            return bad if self.fault=='reject_rate' else ok
         if name in ('CFG','ACQ'):
-            self.config=list(map(int,cmd.split(' ',1)[1].split(',')))
+            values=list(map(int,cmd.split(' ',1)[1].split(',')))
+            if len(values) not in ((10,11) if self.rate_support else (10,)):return bad
+            if self.rate_support and len(values)==10:values.append(100)
+            self.config=values
+            if self.config[0]==1:self.samples_register=self.config[1]
             if self.fault=='reject_cfg':return bad
             if name=='CFG':return ok
             name='ARM'
@@ -81,7 +97,7 @@ class Simulator:
             if self.phase!='done':return bad
             self.get_active.set()
             try:
-                n=self.active[1]*100000 if self.active[0]==0 else self.active[1]
+                n=self.active[1]*(self.active[10] if len(self.active)>10 else 100)*1000 if self.active[0]==0 else self.active[1]
                 if self.fault=='stall_get':
                     while not self.stop_event.wait(.02):
                         if select.select([conn],[],[],0)[0]:
@@ -130,7 +146,8 @@ class Simulator:
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=11235);p.add_argument('--mbps',type=float,default=6)
-    args=p.parse_args();server=Simulator(args.port,mbps=args.mbps)
+    p.add_argument('--v28',action='store_true',help='Enable V28 save-rate fields and commands')
+    args=p.parse_args();server=Simulator(args.port,mbps=args.mbps,rate_support=args.v28)
     print(f'V26 simulated device: 127.0.0.1:{server.port}; Ctrl+C to stop')
     try:
         while True:time.sleep(1)

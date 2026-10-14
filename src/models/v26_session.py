@@ -11,7 +11,7 @@ import time
 import uuid
 
 from .v26_protocol import (AcquisitionSettings,ERROR_MASK,can_arm,can_get,can_force,
-                           can_release,parse_tst,validate_record)
+                           can_release,parse_tst,validate_record,record_rate_hz)
 from .v26_transport import Transport,RecordWriter,CommandRejected,Stopped
 
 
@@ -44,6 +44,7 @@ class V26Session:
                         configured=asdict(self.configured) if self.configured else None,
                         repeat=self.repeating,receiving=self.receiving,busy=self._pending,
                         can_start=available and not self.managed and not self.repeating and can_arm(s),
+                        can_set_rate=available and not self.managed and not self.repeating and can_arm(s) and 'CFG_RATE_MSPS' in s,
                         can_force=bool(available and can_force(s,self.active)),
                         can_read=available and not self.managed and can_get(s),
                         can_release=available and not self.managed and can_release(s),
@@ -67,7 +68,7 @@ class V26Session:
     def wait(self,timeout=None):return self._done.wait(timeout)
 
     def submit(self,action,settings=None,repeat=False,command=None):
-        if action not in ('configure','start','arm','force','cancel','read','release','stop_repeat','query','finit','clear'):
+        if action not in ('configure','start','arm','force','cancel','read','release','stop_repeat','query','finit','clear','rate'):
             raise ValueError('不支持的操作')
         with self._lock:
             if self.state!='connected':raise RuntimeError('请先连接设备并读取采集状态')
@@ -75,9 +76,12 @@ class V26Session:
             if action=='cancel' and self.receiving:
                 self.repeating=False;self.stop();return
             if self.receiving or self._pending:raise RuntimeError('上一条操作尚未完成；GET 中禁止发送控制命令')
-            if action in ('configure','start','arm'):
+            if action in ('configure','start','arm','rate'):
                 if self.managed or self.repeating or not can_arm(self.status):raise RuntimeError('设备尚未就绪、有未处理记录或仍在重复采集')
-                if action!='arm' and not isinstance(settings,AcquisitionSettings):raise ValueError('缺少完整采集配置')
+                if action in ('configure','start') and not isinstance(settings,AcquisitionSettings):raise ValueError('缺少完整采集配置')
+                if action=='rate':
+                    if type(settings) is not int or not 1<=settings<=100:raise ValueError('保存采样率必须为 1–100 MSPS 的整数')
+                    if 'CFG_RATE_MSPS' not in self.status:raise ValueError('设备未提供可调保存速率')
             if repeat and (settings is None or settings.mode!=1 or 'GAP_LEFT_MS' not in self.status):
                 raise ValueError('重复采集需要自动模式和设备 GAP_LEFT_MS 字段')
             if action=='force' and not can_force(self.status,self.active):raise RuntimeError('本次不是已确认的手动采集，或历史尚未就绪')
@@ -95,12 +99,15 @@ class V26Session:
         name,sep,arg=text.partition(' ')
         if name in ('CFG','ACQ'):
             fields=arg.split(',')
-            if len(fields)!=10 or any(not x.strip().isascii() or not x.strip().isdigit() for x in fields):
-                raise ValueError('CFG/ACQ 需要十个无符号十进制整数')
+            if len(fields) not in (10,11) or any(not x.strip().isascii() or not x.strip().isdigit() for x in fields):
+                raise ValueError('CFG/ACQ 需要十个或十一个无符号十进制整数')
             settings=AcquisitionSettings(*map(lambda x:int(x.strip()),fields))
             # ACQ semantics use verified CFG + ARM to keep the same host state gates.
             return self.submit('configure' if name=='CFG' else 'start',settings)
-        if sep:raise ValueError('本版调试参数配置请使用完整 CFG/ACQ；不接受其他参数指令')
+        if name=='RATE' and sep:
+            if not arg.isascii() or not arg.isdigit():raise ValueError('RATE 需要 1–100 的无符号十进制整数')
+            return self.submit('rate',int(arg))
+        if sep:raise ValueError('参数配置请使用完整 CFG/ACQ 或 RATE')
         actions={'ARM':'arm','FORCE':'force','ABORT':'cancel','RELEASE':'release','GET':'read','FINIT':'finit','CLEAR_EVENTS':'clear'}
         if name in actions:return self.submit(actions[name])
         return self.submit('query',command=name)
@@ -170,10 +177,17 @@ class V26Session:
             self.phase='写入并核对配置';s=self._status()
             if not can_arm(s):raise ValueError('设备有活动或未释放记录')
             self.configured=None
-            self._request(settings.command());s=self._status()
+            self._request(settings.command(include_rate='CFG_RATE_MSPS' in s));s=self._status()
             if not settings.matches(s):raise ValueError('配置回读不一致，请核对诊断')
             self.configured=settings
             if action=='start':self._arm(repeat)
+        elif action=='rate':
+            s=self._status()
+            if not can_arm(s) or 'CFG_RATE_MSPS' not in s:raise ValueError('设备未就绪或未提供可调保存速率')
+            self.configured=None
+            self._request(f'RATE {settings}');s=self._status()
+            if s.get('CFG_RATE_MSPS')!=settings:raise ValueError('保存采样率回读不一致，请核对设备配置')
+            self._event(f'已设置下一组保存采样率 {settings} MSPS；准备采集时将提交全部配置')
         elif action=='arm':self._arm(False)
         elif action=='force':
             if not can_force(self._status(),self.active):raise ValueError('手动触发条件已变化，请查看状态')
@@ -260,7 +274,8 @@ class V26Session:
         self.receiving=True;self.phase='读取波形，已暂停状态查询'
         base=f'capture_{self.index:04d}_{s["SAMPLES"]}pairs_{uuid.uuid4().hex[:6]}'
         partial=self.directory/(base+'.partial.hex');final=self.directory/(base+'.hex')
-        meta=dict(format_version=3,application='AD-HOST Qt6 0.5.3',protocol='V26',complete=False,
+        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.0',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
+                  sample_rate_hz=record_rate_hz(s),adc_clock_hz=s['RATE'],complete=False,
                   status=s,active_settings=asdict(self.active) if self.active else None,
                   active_configuration_known=self.active is not None,diagnostics=dict(self.diagnostics),
                   expected_hex_bytes=self.expected,started_utc=datetime.now(timezone.utc).isoformat())

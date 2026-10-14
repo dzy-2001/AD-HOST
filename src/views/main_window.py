@@ -18,7 +18,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__();self.allow_close=False
-        self.setWindowTitle('AD-HOST 0.5.3 · 采集与波形');self.setWindowIcon(icon('wave-square'))
+        self.setWindowTitle('AD-HOST 0.6.0 · 采集与波形');self.setWindowIcon(icon('wave-square'))
         self.resize(1180,870);self.setMinimumSize(950,680)
         root=QWidget();self.setCentralWidget(root);layout=QVBoxLayout(root);layout.setContentsMargins(18,14,18,12)
         title=QLabel('AD-HOST  /  双通道采集');title.setProperty('cssClass','title');layout.addWidget(title)
@@ -47,14 +47,21 @@ class MainWindow(QMainWindow):
         self.length_hint=QLabel('范围 1–200 ms')
         self.pre_hint=QLabel()
         for col,label,field,hint in (
-            (0,QLabel('设置方式'),self.len_mode,QLabel('点数与时长按 100 MHz / 通道换算')),
+            (0,QLabel('设置方式'),self.len_mode,QLabel('点数与时长按保存采样率换算')),
             (1,self.length_label,self.length,self.length_hint),
             (2,QLabel('触发前占比'),self.pre,self.pre_hint)):
             label.setProperty('cssClass','field-label');label.setBuddy(field)
             hint.setProperty('cssClass','field-hint');hint.setWordWrap(True)
             field.setMinimumWidth(190)
             grid.addWidget(label,0,col);grid.addWidget(field,1,col);grid.addWidget(hint,2,col);grid.setColumnStretch(col,1)
-        self.config_widgets.extend([self.len_mode,self.length,self.pre])
+        row=QHBoxLayout();box.addLayout(row)
+        self.rate=spin(1,100,100,' MSPS');self.rate.setMinimumWidth(140);self.rate.setMaximumWidth(180)
+        self.rate.setAccessibleName('保存采样率');self.rate.setToolTip('1–100 MSPS / 通道；ADC 和触发检测保持 100 MHz')
+        label=QLabel('保存采样率');label.setBuddy(self.rate);label.setProperty('cssClass','field-label')
+        row.addWidget(label);row.addWidget(self.rate);row.addWidget(self.action_button('rate','设置采样率','check'))
+        self.rate_status=QLabel('ADC / 触发检测固定 100 MHz');self.rate_status.setWordWrap(True)
+        self.rate_status.setProperty('cssClass','field-hint');row.addWidget(self.rate_status,1)
+        self.config_widgets.extend([self.len_mode,self.length,self.pre,self.rate])
         self.estimate=QLabel();self.estimate.setWordWrap(True);self.estimate.setProperty('cssClass','summary');box.addWidget(self.estimate)
         widget,box=card('2  触发条件');acq.addWidget(widget)
         row=QHBoxLayout();box.addLayout(row)
@@ -154,7 +161,7 @@ class MainWindow(QMainWindow):
     def values(self):
         return dict(len_mode=self.len_mode.currentIndex(),length=self.length.value(),pre=self.pre.value(),mode=self.mode.currentIndex(),
                     vth=self.vth.value(),vcmp=self.vcmp.currentIndex(),ith=self.ith.value(),icmp=self.icmp.currentIndex(),
-                    enable=int(self.enable_v.isChecked())+2*int(self.enable_i.isChecked()),gap_ms=self.gap.value())
+                    enable=int(self.enable_v.isChecked())+2*int(self.enable_i.isChecked()),gap_ms=self.gap.value(),rate_msps=self.rate.value())
 
     def set_idle(self):
         self.disconnect_button.setEnabled(False);self.latest_button.setEnabled(False)

@@ -64,9 +64,10 @@ class WaveformController(QObject):
             self.view.start.setValue(0);self.view.stop.setValue(count);self.view.progress.setValue(1000)
             origin=self.recording.trigger_index
             st=(self.recording.metadata or {}).get('status',{})
-            self.view.details.setText(f'{count:,} 组 · {self.recording.sample_rate_hz/1e6:g} MHz / 通道 · '+
-                                      ('触发位置未知，时间从记录起点计' if origin is None else f'触发位置 {origin:,} · {reason_text(st.get("REASON",0))}'+(' · 触发样本在记录外' if origin==count else '')))
-            self.view.axes[1].set_xlabel('Time relative to trigger (ms)' if origin is not None else 'Time from record start (ms)')
+            v28=(self.recording.metadata or {}).get('protocol')=='V28'
+            self.view.details.setText(f'{count:,} 组 · 保存 {self.recording.sample_rate_hz/1e6:g} MSPS / 通道 · '+
+                                      ('无采集元数据，按 100 MSPS 从记录起点计时' if origin is None else f'{"保存边界" if v28 else "触发位置"} {origin:,} · {reason_text(st.get("REASON",0))}'+(' · 边界样本在记录外' if origin==count else '')+(' · 按保存速率换算时间' if v28 else '')))
+            self.view.axes[1].set_xlabel('Nominal time relative to saved boundary (ms)' if v28 else 'Time relative to trigger (ms)' if origin is not None else 'Time from record start (ms)')
             for line in self.view.triggers:line.set_visible(origin is not None)
             self._active_range=(0,count);self._set_limits(self.full_limits());self.view.display_curve(self.current_view,fit=True)
             self.view.navigation.update();self.view.navigation.push_current()

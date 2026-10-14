@@ -21,10 +21,10 @@ def pump(app,predicate,timeout=15):
     app.processEvents()
 
 
-def run():
+def run(v28=False):
     app,window,controller=create_application();app.setQuitOnLastWindowClosed(False);window.show()
     with tempfile.TemporaryDirectory() as directory:
-        board=Simulator(fragment=7,fault='identity_changed')
+        board=Simulator(fragment=7,fault='identity_changed',rate_support=v28)
         try:
             window.host.setText('127.0.0.1');window.port.setValue(board.port);window.output.setText(directory)
             window.len_mode.setCurrentIndex(1);window.length.setValue(10001);window.pre.setValue(30)
@@ -32,31 +32,41 @@ def run():
             assert '70%' in window.pre_hint.text()
             assert '+1.324219 V' in window.vth_hint.text()
             assert '不参与判断' in window.mode_hint.text()
+            if v28:
+                window.len_mode.setCurrentIndex(0);window.length.setValue(2);window.rate.setValue(5)
+                assert '10,000' in window.estimate.text() and '2.000000 ms' in window.estimate.text()
             window.connect_button.click();original=controller.session;controller.connect_device();assert controller.session is original
             pump(app,lambda:controller.session.snapshot()['can_start']);controller.refresh()
+            if v28:
+                assert window.actions['rate'].isEnabled();window.actions['rate'].click()
+                pump(app,lambda:not controller.session.snapshot()['busy'] and controller.session.snapshot()['status'].get('CFG_RATE_MSPS')==5)
+                assert 'RATE 5' in [c for c,t in board.commands]
+                assert 'ARM' not in [c for c,t in board.commands]
+                controller.refresh()
             window.actions['start'].click();pump(app,lambda:controller.session.snapshot()['can_force']);controller.refresh()
             assert window.actions['force'].isEnabled();window.actions['force'].click()
             pump(app,lambda:controller.session.snapshot()['completed']==1);controller.refresh()
-            path=Path(controller.session.snapshot()['last_path']);assert path.read_bytes()==b'08000ABC'*10001
+            path=Path(controller.session.snapshot()['last_path']);assert path.read_bytes()==b'08000ABC'*(10000 if v28 else 10001)
             window.latest_button.click();wave=controller.waveforms[-1]
             pump(app,lambda:wave.recording is not None and not wave.busy)
             assert wave.recording.trigger_index==3000
-            assert math.isclose(wave.current_view.time_ms[0],-.03,abs_tol=1e-12)
+            assert wave.recording.sample_rate_hz==(5000000 if v28 else 100000000)
+            assert math.isclose(wave.current_view.time_ms[0],-.6 if v28 else -.03,abs_tol=1e-12)
             before=wave.view.axes[0].get_xlim()
             wave.scroll(SimpleNamespace(inaxes=wave.view.axes[0],xdata=0,button='up'))
             assert wave.view.axes[0].get_xlim()[1]-wave.view.axes[0].get_xlim()[0]<before[1]-before[0]
             wave.view.start.setValue(2990);wave.view.stop.setValue(3011);wave.apply_range()
             pump(app,lambda:len(wave.current_view.indices)<30)
             assert 3000 in wave.current_view.indices
-            wave.set_mode('measure');wave.set_cursor('A',0);wave.set_cursor('B',.00005)
+            wave.set_mode('measure');wave.set_cursor('A',0);wave.set_cursor('B',.001 if v28 else .00005)
             assert wave.cursors['A'].index==3000 and wave.cursors['B'].index==3005
-            wave.motion(SimpleNamespace(inaxes=wave.view.axes[0],xdata=.00002));assert wave.view.readout.cells['hover']['index'].text()=='3,002'
+            wave.motion(SimpleNamespace(inaxes=wave.view.axes[0],xdata=.0004 if v28 else .00002));assert wave.view.readout.cells['hover']['index'].text()=='3,002'
             assert wave.view.readout.cells['hover']['voltage_raw'].text()=='2048'
             assert wave.view.readout.cells['A']['voltage_raw'].text()=='2048'
             assert wave.view.readout.cells['B']['voltage_raw'].text()=='2048'
             assert wave.view.readout.cells['delta']['voltage_raw'].text()=='+0'
             assert wave.view.readout.cells['delta']['index'].text()=='+5'
-            assert wave.view.readout.cells['delta']['time'].text()=='+0.000050000'
+            assert wave.view.readout.cells['delta']['time'].text()==('+0.001000000' if v28 else '+0.000050000')
             wave.save(Path(directory)/'plot.png');assert (Path(directory)/'plot.png').stat().st_size>1000
             screenshots=os.environ.get('AD_HOST_SCREENSHOTS')
             if screenshots:
@@ -82,4 +92,4 @@ def run():
     print('PASS: Qt acquisition, relaxed version, icons, zoom, raw cursors, export, close/reopen')
 
 
-if __name__=='__main__':run()
+if __name__=='__main__':run('--v28' in sys.argv)

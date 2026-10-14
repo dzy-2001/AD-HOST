@@ -18,7 +18,7 @@ class ProtocolTests(unittest.TestCase):
 
     def test_configuration_exact_wire_and_lengths(self):
         config = self.p.AcquisitionSettings(1,100000,30,1,2500,0,1500,4,3,1000)
-        self.assertEqual(config.command('CFG'), b'CFG 1,100000,30,1,2500,0,1500,4,3,1000\r')
+        self.assertEqual(config.command('CFG',include_rate=False), b'CFG 1,100000,30,1,2500,0,1500,4,3,1000\r')
         self.assertEqual(config.samples, 100000)
         self.assertEqual(config.pre_samples, 30000)
         self.assertEqual(self.p.AcquisitionSettings(length=200).samples, 20000000)
