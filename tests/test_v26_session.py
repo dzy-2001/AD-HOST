@@ -28,10 +28,10 @@ class SessionTests(unittest.TestCase):
         self.api=importlib.import_module('ad_host.v26_session')
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
 
-    def connect(self,**kwargs):
+    def connect(self,*,progress_timeout=3,**kwargs):
         server=Simulator(**kwargs);self.addCleanup(server.close)
         session=self.api.V26Session(CaptureConfig('127.0.0.1',server.port,Path(self.temp.name),queue_chunks=2),
-                                    command_timeout=.5,progress_timeout=.3,poll_interval=.01)
+                                    command_timeout=.5,progress_timeout=progress_timeout,poll_interval=.01)
         self.addCleanup(lambda:(session.stop(),session.wait(3)))
         session.start();wait(session,lambda s:s['state']=='connected')
         return server,session
@@ -83,7 +83,7 @@ class SessionTests(unittest.TestCase):
                 self.assertTrue(partial);self.assertFalse(json.loads(partial[0].read_text('utf-8'))['complete'])
 
     def test_get_no_progress_timeout_is_separate_from_trigger_wait(self):
-        board,s=self.connect(fault='stall_get')
+        board,s=self.connect(fault='stall_get',progress_timeout=.3)
         s.submit('start',AcquisitionSettings(len_mode=1,length=10))
         wait(s,lambda x:x['can_force']);time.sleep(.4)
         self.assertEqual(s.snapshot()['state'],'connected')
