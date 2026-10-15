@@ -313,7 +313,7 @@ class V26Session:
             self.phase='已连接（仅诊断，采集状态不可用）';return
         s=self.status;status=s.get('STATUS',0)
         if status&ERROR_MASK:self.phase='设备异常，请处理已有记录/查看诊断'
-        elif status&4:self.phase='采集完成，等待手动读取'
+        elif status&4:self.phase='待手动读取'
         elif status&2:
             if s.get('TRIGGERED'):self.phase='已触发，正在完成记录'
             elif not s.get('HISTORY_READY'):self.phase='正在建立前触发历史'
