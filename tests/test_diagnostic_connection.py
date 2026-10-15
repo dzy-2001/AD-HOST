@@ -72,6 +72,7 @@ class DiagnosticConnectionTests(unittest.TestCase):
         snap=wait(s,lambda x:x['can_start'])
         self.assertFalse(snap['error']);self.assertFalse(snap['status_error'])
         s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1,rate_msps=5))
+        wait(s,lambda x:x['can_read']);s.submit('read')
         wait(s,lambda x:x['completed']==1)
 
     def test_lost_status_invalidates_previous_ready_state(self):

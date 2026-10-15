@@ -30,6 +30,7 @@ class V28SessionTests(unittest.TestCase):
     def test_time_mode_low_rate_saves_actual_rate_and_raw_timing(self):
         board,s=self.connect(rate_support=True)
         s.submit('start',AcquisitionSettings(length=2,mode=1,rate_msps=5))
+        wait(s,lambda x:x['can_read']);s.submit('read')
         snap=wait(s,lambda x:x['completed']==1)
         path=Path(snap['last_path']);self.assertEqual(path.stat().st_size,80000)
         meta=json.loads(Path(str(path)+'.json').read_text('utf-8'))

@@ -21,7 +21,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__();self.allow_close=False;self.diagnostic_messages=[]
-        self.setWindowTitle('AD-HOST 0.6.5 · 采集与波形');self.setWindowIcon(application_icon())
+        self.setWindowTitle('AD-HOST 0.6.6 · 采集与波形');self.setWindowIcon(application_icon())
         self.resize(1180,870);self.setMinimumSize(950,680)
         root=QWidget();self.setCentralWidget(root);layout=QVBoxLayout(root);layout.setContentsMargins(18,14,18,12)
         title=QLabel('AD-HOST  /  双通道采集');title.setProperty('cssClass','title');layout.addWidget(title)
@@ -95,9 +95,19 @@ class MainWindow(QMainWindow):
         row=QHBoxLayout();acq.addLayout(row);self.repeat=QCheckBox('重复自动记录');self.gap=spin(0,600000,1000,' ms')
         row.addWidget(self.repeat);row.addWidget(QLabel('记录间隔'));row.addWidget(self.gap);row.addStretch()
         self.config_widgets.extend([self.repeat,self.gap])
-        row=QHBoxLayout();self.acquisition_footer.addLayout(row)
-        for action,text,glyph,css in [('configure','应用配置','check',None),('start','准备采集','play','success'),('force','手动触发','bolt','primary'),('cancel','取消当前采集','stop','danger'),('stop_repeat','停止后续记录','pause','warning')]:
-            b=self.action_button(action,text,glyph,css);row.addWidget(b)
+        self.repeat.setToolTip('每组完成后等待手动读取；读取成功并到达间隔后，准备下一组。')
+        self.acquisition_actions=QGridLayout();self.acquisition_actions.setHorizontalSpacing(12);self.acquisition_actions.setVerticalSpacing(8)
+        self.acquisition_footer.addLayout(self.acquisition_actions)
+        rows=(
+            [('configure','应用配置','check',None),('start','准备采集','play','success'),('force','手动触发','bolt','primary'),('read','读取设备记录','download','primary')],
+            [('cancel','取消当前采集','stop','danger'),('release','丢弃设备记录','trash-alt','danger'),('stop_repeat','停止后续记录','pause','warning')],
+        )
+        for row,items in enumerate(rows):
+            for col,(action,text,glyph,css) in enumerate(items):
+                self.acquisition_actions.addWidget(self.action_button(action,text,glyph,css),row,col)
+        for col in range(4):self.acquisition_actions.setColumnStretch(col,1)
+        self.actions['read'].setToolTip('采集完成后手动发送 GET；停止脉冲输出后再读取，采样板保持供电。')
+        self.actions['stop_repeat'].setToolTip('不再准备下一组；当前采集或读取继续，设备已有记录保留。')
         self.trigger=QLabel('尚未触发');acq.addWidget(self.trigger)
         self.metrics=QLabel('尚未接收数据');self.metrics.setWordWrap(True);acq.addWidget(self.metrics)
         self.progress=QProgressBar();self.progress.setRange(0,1000);self.progress.setValue(0);self.progress.setFormat('%p%');acq.addWidget(self.progress);acq.addStretch()
@@ -110,8 +120,6 @@ class MainWindow(QMainWindow):
         self.save_record_button=button('保存选中记录','save','success');row.addWidget(self.save_record_button);row.addStretch()
         self.save_record_button.clicked.connect(self.save_requested.emit)
         self.plot_button.clicked.connect(lambda:self.plot_requested.emit(False));self.latest_button.clicked.connect(lambda:self.plot_requested.emit(True))
-        row=QHBoxLayout();rec.addLayout(row)
-        row.addWidget(self.action_button('read','读取设备已有记录','download'));row.addWidget(self.action_button('release','丢弃设备已有记录','trash-alt','danger'));row.addStretch()
         rec.addWidget(QLabel('电压 V · 电流 A · 保留原始计数'));rec.addStretch()
         widget,box=card('连接参数');dia.addWidget(widget);row=QHBoxLayout();box.addLayout(row)
         self.buffer=combo(['16','64','256']);self.buffer.setCurrentText('64');self.timeout=spin(1,600,30,' s')

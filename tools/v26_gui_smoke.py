@@ -29,7 +29,8 @@ with tempfile.TemporaryDirectory() as directory:
         app.begin_capture();pump(root,lambda:app.session.snapshot()['can_force'])
         app.refresh();assert str(app.force_button['state'])=='normal'
         assert not app.session.snapshot()['completed']
-        app.force_button.invoke();pump(root,lambda:app.session.snapshot()['completed']==1)
+        app.force_button.invoke();pump(root,lambda:app.session.snapshot()['can_read'])
+        app.refresh();app.read_button.invoke();pump(root,lambda:app.session.snapshot()['completed']==1)
         path=Path(app.session.snapshot()['last_path']);assert path.read_bytes()==b'08000ABC'*10001
         app.open_latest();window=app.plot_window
         pump(root,lambda:not window.busy)

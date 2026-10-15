@@ -250,7 +250,7 @@ class V26Session:
             self._request('RELEASE');self._verify_released();self.active=None
         elif action=='read':
             if not can_get(self._status()):raise ValueError('记录尚不可读取')
-            self._read_record()
+            self._read_record();self.managed=False
         elif action=='query':self._status(report=True) if command=='TST' else self._request(command)
         elif action=='finit':
             self._request('FINIT');self.configured=None;self.active=None;self._status()
@@ -298,7 +298,9 @@ class V26Session:
                 self._bad_metadata+=1
                 if self._bad_metadata>=3:raise
                 return
-            self._read_record();self.managed=False
+            # Completion only exposes the record. GET always requires an explicit action.
+            self.managed=False
+            self._event('采集完成，记录保留在设备，等待手动读取')
         elif self.managed and can_arm(s):
             raise ValueError('采集未产生有效记录已回到就绪，请检查是否被取消')
         elif self.repeating and not self.managed and can_arm(s):
@@ -311,7 +313,7 @@ class V26Session:
             self.phase='已连接（仅诊断，采集状态不可用）';return
         s=self.status;status=s.get('STATUS',0)
         if status&ERROR_MASK:self.phase='设备异常，请处理已有记录/查看诊断'
-        elif status&4:self.phase='记录完成，可读取或丢弃'
+        elif status&4:self.phase='采集完成，等待手动读取'
         elif status&2:
             if s.get('TRIGGERED'):self.phase='已触发，正在完成记录'
             elif not s.get('HISTORY_READY'):self.phase='正在建立前触发历史'
@@ -329,7 +331,7 @@ class V26Session:
         while any(self.directory.glob(base+'.*')):
             suffix+=1;base=f'{stem}_{suffix}'
         partial=self.directory/(base+'.partial.hex');final=self.directory/(base+'.hex')
-        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.5',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
+        meta=dict(format_version=4,application='AD-HOST Qt6 0.6.6',protocol='V28' if 'ACTIVE_RATE_MSPS' in s else 'V26',
                   sample_rate_hz=record_rate_hz(s),adc_clock_hz=s['RATE'],calibration=dict(CALIBRATION),complete=False,
                   status=s,active_settings=asdict(self.active) if self.active else None,
                   active_configuration_known=self.active is not None,diagnostics=dict(self.diagnostics),

@@ -41,7 +41,7 @@ class SessionTests(unittest.TestCase):
         s.submit('start',AcquisitionSettings(len_mode=1,length=11,pre=30))
         wait(s,lambda x:x['can_force'])
         self.assertNotIn('GET',[c for c,t in board.commands])
-        s.submit('force');snap=wait(s,lambda x:x['completed']==1)
+        s.submit('force');wait(s,lambda x:x['can_read']);s.submit('read');snap=wait(s,lambda x:x['completed']==1)
         path=Path(snap['last_path']);self.assertEqual(path.read_bytes(),b'08000ABC'*11)
         meta=json.loads(Path(str(path)+'.json').read_text('utf-8'))
         self.assertTrue(meta['complete']);self.assertEqual(meta['status']['ACTIVE_PRE'],3)
@@ -51,7 +51,9 @@ class SessionTests(unittest.TestCase):
     def test_auto_repeat_honors_device_gap_and_never_force(self):
         board,s=self.connect()
         s.submit('start',AcquisitionSettings(len_mode=1,length=100,mode=1,gap_ms=120),repeat=True)
-        wait(s,lambda x:x['completed']>=2);s.submit('stop_repeat')
+        for total in (1,2):
+            wait(s,lambda x:x['can_read']);s.submit('read');wait(s,lambda x:x['completed']>=total)
+        s.submit('stop_repeat')
         commands=[c for c,t in board.commands];self.assertNotIn('FORCE',commands)
         arms=[t for c,t in board.commands if c=='ARM']
         self.assertGreaterEqual(arms[1]-arms[0],.12)
@@ -76,6 +78,7 @@ class SessionTests(unittest.TestCase):
             with self.subTest(fault=fault):
                 board,s=self.connect(fault=fault)
                 s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1))
+                wait(s,lambda x:x['can_read']);s.submit('read')
                 snap=wait(s,lambda x:x['state']=='failed')
                 self.assertEqual(snap['completed'],0)
                 s.wait(3)
@@ -87,7 +90,7 @@ class SessionTests(unittest.TestCase):
         s.submit('start',AcquisitionSettings(len_mode=1,length=10))
         wait(s,lambda x:x['can_force']);time.sleep(.4)
         self.assertEqual(s.snapshot()['state'],'connected')
-        s.submit('force');snap=wait(s,lambda x:x['state']=='failed')
+        s.submit('force');wait(s,lambda x:x['can_read']);s.submit('read');snap=wait(s,lambda x:x['state']=='failed')
         self.assertIn('进度',snap['error']);self.assertEqual(board.interleaved,[])
 
     def test_missing_gap_disables_repeat_instead_of_guessing_zero(self):
@@ -97,6 +100,7 @@ class SessionTests(unittest.TestCase):
     def test_get_cancel_closes_socket_without_abort_or_queries(self):
         board,s=self.connect(fault='stall_get')
         s.submit('start',AcquisitionSettings(len_mode=1,length=100,mode=1))
+        wait(s,lambda x:x['can_read']);s.submit('read')
         wait(s,lambda x:x['receiving']);self.assertTrue(board.get_active.wait(1))
         s.submit('cancel');self.assertTrue(s.wait(3))
         self.assertEqual(s.snapshot()['completed'],0)
@@ -132,6 +136,7 @@ class SessionTests(unittest.TestCase):
             return f
         with patch.object(Path,'open',disk_open):
             s.submit('start',AcquisitionSettings(len_mode=1,length=100,mode=1))
+            wait(s,lambda x:x['can_read']);s.submit('read')
             wait(s,lambda x:x['state']=='failed');self.assertTrue(s.wait(3))
         self.assertEqual(s.snapshot()['completed'],0);self.assertTrue(all(f.closed for f in opened))
         meta=list(s.directory.glob('*.partial.hex.json'))
@@ -144,6 +149,7 @@ class SessionTests(unittest.TestCase):
             return original(path,*args,**kwargs)
         with patch.object(Path,'open',disk_open):
             s.submit('start',AcquisitionSettings(len_mode=1,length=11,mode=1))
+            wait(s,lambda x:x['can_read']);s.submit('read')
             wait(s,lambda x:x['state']=='failed');self.assertTrue(s.wait(3))
         self.assertEqual(s.snapshot()['completed'],0)
         self.assertTrue(list(s.directory.glob('*.partial.hex')))
@@ -152,6 +158,7 @@ class SessionTests(unittest.TestCase):
     def test_repeat_gap_freezes_configuration_until_stop_repeat(self):
         board,s=self.connect()
         s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1,gap_ms=1000),repeat=True)
+        wait(s,lambda x:x['can_read']);s.submit('read')
         wait(s,lambda x:x['completed']==1 and x['status'].get('GAP_LEFT_MS',0)>0)
         self.assertFalse(s.snapshot()['can_start'])
         with self.assertRaises(RuntimeError):s.submit('configure',AcquisitionSettings())
@@ -160,10 +167,12 @@ class SessionTests(unittest.TestCase):
     def test_stop_repeat_during_second_arm_acknowledgment_is_not_lost(self):
         board,s=self.connect();board.arm_gate=threading.Event()
         s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1,gap_ms=0),repeat=True)
+        wait(s,lambda x:x['can_read']);s.submit('read')
         end=time.monotonic()+3
         while board.arm_count<2 and time.monotonic()<end:time.sleep(.005)
         self.assertEqual(board.arm_count,2)
         s.submit('stop_repeat');board.arm_gate.set()
+        wait(s,lambda x:x['can_read']);s.submit('read')
         wait(s,lambda x:x['completed']>=2)
         self.assertFalse(s.snapshot()['repeat'])
         time.sleep(.1);self.assertEqual(board.arm_count,2)
@@ -171,6 +180,7 @@ class SessionTests(unittest.TestCase):
     def test_rejected_executed_arm_does_not_reuse_previous_configuration(self):
         board,s=self.connect()
         s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1,gap_ms=0))
+        wait(s,lambda x:x['can_read']);s.submit('read')
         wait(s,lambda x:x['completed']==1 and x['can_start'])
         board.fault='reject_executed_arm'
         s.submit('start',AcquisitionSettings(len_mode=1,length=20,mode=0))
@@ -189,6 +199,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(s.snapshot()['diagnostics']['VER'],'V1.0.14 (V27)')
         self.assertIn('IERR:7',s.snapshot()['diagnostics']['FST'])
         s.submit('start',AcquisitionSettings(len_mode=1,length=10,mode=1))
+        wait(s,lambda x:x['can_read']);s.submit('read')
         snap=wait(s,lambda x:x['completed']==1)
         self.assertEqual(Path(snap['last_path']).read_bytes(),b'08000ABC'*10)
 

@@ -37,6 +37,8 @@ class QtArchivingTests(unittest.TestCase):
     def capture(self,total):
         self.pump(lambda:self.controller.session.snapshot()['can_start'])
         self.window.actions['start'].click()
+        self.pump(lambda:self.controller.session.snapshot()['can_read'])
+        self.window.actions['read'].click()
         self.pump(lambda:self.controller.session.snapshot()['completed']==total)
 
     def test_manual_mode_hides_thresholds_but_retains_settings(self):

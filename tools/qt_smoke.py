@@ -54,6 +54,19 @@ def run(v28=False):
                 controller.refresh()
             window.actions['start'].click();pump(app,lambda:controller.session.snapshot()['can_force']);controller.refresh()
             assert window.actions['force'].isEnabled();window.actions['force'].click()
+            pump(app,lambda:controller.session.snapshot()['can_read']);controller.refresh()
+            assert not controller.session.snapshot()['completed']
+            assert 'GET' not in [c for c,t in board.commands]
+            assert window.actions['read'].isEnabled() and not window.actions['start'].isEnabled()
+            for row,names in enumerate((('configure','start','force','read'),('cancel','release','stop_repeat'))):
+                for col,name in enumerate(names):
+                    assert window.acquisition_actions.itemAtPosition(row,col).widget() is window.actions[name]
+                    assert window.tabs.widget(0).isAncestorOf(window.actions[name])
+            screenshots=os.environ.get('AD_HOST_SCREENSHOTS')
+            if screenshots:
+                output=Path(screenshots);output.mkdir(parents=True,exist_ok=True)
+                window.grab().save(str(output/'pending-manual-read.png'))
+            window.actions['read'].click()
             pump(app,lambda:controller.session.snapshot()['completed']==1);controller.refresh()
             assert not (Path(directory)/'archives').exists()
             path=Path(controller.session.snapshot()['last_path']);assert path.read_bytes()==b'08000ABC'*(10000 if v28 else 10001)
@@ -95,8 +108,8 @@ def run(v28=False):
                 assert wave.view.axes[1].xaxis.label.get_window_extent(wave.view.canvas.get_renderer()).y0>=0
                 wave.view.grab().save(str(output/'waveform-small.png'))
                 window.resize(950,680);app.processEvents()
-                start_button=window.actions['start']
-                assert window.centralWidget().rect().contains(start_button.mapTo(window.centralWidget(),start_button.rect().center()))
+                for action_button in window.actions.values():
+                    assert window.centralWidget().rect().contains(action_button.mapTo(window.centralWidget(),action_button.rect().center()))
                 window.grab().save(str(output/'main-small.png'))
                 window.activateWindow();window.len_mode.showPopup();app.processEvents()
                 window.len_mode.view().window().grab().save(str(output/'combo-popup.png'))
