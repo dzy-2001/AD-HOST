@@ -22,7 +22,7 @@ class DeferredReadTests(unittest.TestCase):
     def connect(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
         board=Simulator(rate_support=True);self.addCleanup(board.close)
-        session=V26Session(CaptureConfig('127.0.0.1',board.port,Path(temp.name)),poll_interval=.01,progress_timeout=.1)
+        session=V26Session(CaptureConfig('127.0.0.1',board.port,Path(temp.name)),poll_interval=.01,progress_timeout=3)
         self.addCleanup(lambda:(session.stop(),session.wait(3)))
         session.start();wait(session,lambda x:x['can_start'])
         return board,session
@@ -35,6 +35,7 @@ class DeferredReadTests(unittest.TestCase):
 
     def test_force_keeps_record_until_explicit_get(self):
         board,s=self.connect();snap=self.complete(s)
+        s.progress_timeout=.1
         time.sleep(.2)  # Longer than the GET timeout: waiting is not receiving.
         self.assertEqual(s.snapshot()['completed'],0)
         self.assertEqual(s.snapshot()['state'],'connected')
@@ -43,6 +44,7 @@ class DeferredReadTests(unittest.TestCase):
         self.assertEqual(list(s.directory.glob('*.hex')),[])
         self.assertFalse(snap['can_start']);self.assertTrue(snap['can_release'])
         with self.assertRaises(RuntimeError):s.submit('start',AcquisitionSettings())
+        s.progress_timeout=3  # File creation on Windows CI needs a realistic timeout.
         s.submit_command('GET');snap=wait(s,lambda x:x['completed']==1 and x['can_start'])
         self.assertEqual(Path(snap['last_path']).read_bytes(),b'08000ABC'*11)
         meta=json.loads(Path(snap['last_path']+'.json').read_text('utf-8'))
