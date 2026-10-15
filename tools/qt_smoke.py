@@ -95,8 +95,16 @@ def run(v28=False):
             assert wave.view.readout.cells['delta']['time'].text()==('+0.001000000' if v28 else '+0.000050000')
             wave.save(Path(directory)/'plot.png');assert (Path(directory)/'plot.png').stat().st_size>1000
             assert wave.view.status.text()=='图片已保存'
-            controller.refresh()
+            assert 'image_path' in wave.diagnostics
+            # A hidden diagnostic page can be above its new scroll maximum after
+            # layout/record updates. Its document intentionally freezes there.
+            # Simulate viewing the latest log before checking fresh diagnostics.
+            window.tabs.setCurrentIndex(2);app.processEvents()
+            bar=window.log.verticalScrollBar()
+            print(f'Diagnostic follow-tail: scroll={bar.value()}/{bar.maximum()}, selected={window.log.textCursor().hasSelection()}')
+            bar.setValue(bar.maximum());controller.refresh();app.processEvents()
             assert 'current_probe_a_per_v' in window.log.toPlainText() and 'image_path' in window.log.toPlainText()
+            window.tabs.setCurrentIndex(0);app.processEvents()
             screenshots=os.environ.get('AD_HOST_SCREENSHOTS')
             if screenshots:
                 output=Path(screenshots);output.mkdir(parents=True,exist_ok=True);app.processEvents();wave.view.canvas.draw()
